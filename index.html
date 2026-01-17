@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Creative Ops Tracker</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <div id="auth">
+    <h2>Creative Ops</h2>
+
+    <input id="email" type="email" placeholder="Email" />
+    <input id="password" type="password" placeholder="Password" />
+
+    <button id="loginBtn" type="button">Login</button>
+    <button id="registerBtn" type="button">Register</button>
+
+    <p id="authStatus">Not logged in</p>
+  </div>
+
+  <div id="app" style="display:none;">
+
+    <!-- Top-left app header with logout -->
+    <header id="appHeader">
+      <button id="logoutBtnTop" type="button">Log out</button>
+    </header>
+
+    <div id="status-graph-wrap">
+      <div class="status-legend">
+        <span><i class="dot idea"></i>Idea</span>
+        <span><i class="dot planning"></i>Planning</span>
+        <span><i class="dot inprogress"></i>In Progress</span>
+        <span><i class="dot paused"></i>Paused</span>
+        <span><i class="dot completed"></i>Completed</span>
+      </div>
+      <div id="status-graph"></div>
+    </div>
+
+    <div class="dashboard">
+      <div class="left-panel">
+        <form id="project-form">
+          <h3>Add New Project</h3>
+
+          <input id="title" placeholder="Project title" required />
+          <input id="type" placeholder="Type / Tag (optional)" />
+          <input id="medium" placeholder="Medium / Tools (optional)" />
+
+          <select id="status">
+            <option>Idea</option>
+            <option>Planning</option>
+            <option selected>In Progress</option>
+            <option>Paused</option>
+            <option>Completed</option>
+          </select>
+
+          <button type="submit">Add Project</button>
+        </form>
+      </div>
+
+      <div class="right-panel">
+        <div class="status-columns">
+          <div class="column"><h3>Idea</h3><div id="col-idea"></div></div>
+          <div class="column"><h3>Planning</h3><div id="col-planning"></div></div>
+          <div class="column"><h3>In Progress</h3><div id="col-inprogress"></div></div>
+          <div class="column"><h3>Paused</h3><div id="col-paused"></div></div>
+          <div class="column"><h3>Completed</h3><div id="col-completed"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Modal -->
+  <div id="imgModal" aria-hidden="true">
+    <div class="modal-inner">
+      <img id="imgModalImage" alt="Full size project image" />
+      <div id="imgModalCaption" class="modal-caption"></div>
+      <div class="modal-hint">Click anywhere to close • Esc to close</div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
