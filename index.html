@@ -4,53 +4,41 @@
   <meta charset="UTF-8" />
   <title>Creative Ops</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-  <!-- =========================
-       AUTH SECTION
-  ========================== -->
+  <!-- AUTH -->
   <section id="auth">
     <h2>Login / Register</h2>
 
-    <input id="email" type="email" placeholder="Email" />
-    <input id="password" type="password" placeholder="Password" />
+    <input id="email" type="email" placeholder="Email" autocomplete="email" />
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
 
     <button id="loginBtn" type="button">Login</button>
     <button id="registerBtn" type="button">Register</button>
 
-    <p id="authStatus">Not logged in</p>
+    <p id="authStatusAuth">Not logged in</p>
   </section>
 
-  <!-- =========================
-       APP SECTION
-  ========================== -->
+  <!-- APP -->
   <section id="app" style="display:none;">
-
-    <!-- Top Bar -->
     <header class="top-bar">
       <button id="logoutBtnTop" type="button">Logout</button>
-      <span id="authStatus"></span>
+      <span id="authStatusApp"></span>
     </header>
 
-    <!-- Status Graph -->
     <div id="status-graph-container">
       <div id="status-graph"></div>
     </div>
 
     <div class="dashboard">
-
-      <!-- Left: Add Project -->
       <aside class="left-panel">
         <form id="project-form" novalidate>
           <h3>Add New Project</h3>
 
           <input id="title" type="text" placeholder="Project title" />
-
           <input id="type" type="text" placeholder="Type / Tag (optional)" />
-
           <input id="medium" type="text" placeholder="Medium / Tools" />
 
           <select id="status">
@@ -61,13 +49,11 @@
             <option>Completed</option>
           </select>
 
-          <button type="submit">Add Project</button>
+          <button id="addProjectBtn" type="submit">Add Project</button>
         </form>
       </aside>
 
-      <!-- Right: Project Columns -->
       <main class="right-panel">
-
         <div class="projects-columns">
           <div class="column">
             <h3>Idea</h3>
@@ -94,18 +80,15 @@
             <div id="col-completed"></div>
           </div>
         </div>
-
       </main>
     </div>
   </section>
 
-  <!-- =========================
-       SCRIPT
-  ========================== -->
+  <!-- IMPORTANT: type="module" -->
   <script type="module" src="app.js"></script>
-
 </body>
 </html>
+
 
 
 
