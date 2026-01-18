@@ -51,7 +51,7 @@ function updateStatusGraph() {
   };
 
   const counts = {};
-  STATUSES.forEach(s => counts[s] = 0);
+  STATUSES.forEach(s => (counts[s] = 0));
   projects.forEach(p => {
     if (counts[p.status] !== undefined) counts[p.status]++;
   });
@@ -61,17 +61,16 @@ function updateStatusGraph() {
 
   STATUSES.forEach(status => {
     if (counts[status] === 0) return;
-
     const seg = document.createElement("div");
     seg.style.width = `${(counts[status] / total) * 100}%`;
-    seg.style.background = colors[status];
     seg.style.height = "100%";
+    seg.style.background = colors[status];
     graph.appendChild(seg);
   });
 }
 
 /* =============================
-   PROJECT DB FUNCTIONS
+   DATABASE HELPERS
 ============================= */
 async function fetchProjects() {
   const { data, error } = await supabase
@@ -124,12 +123,10 @@ function render() {
     "Completed": document.getElementById("col-completed")
   };
 
-  Object.values(cols).forEach(col => col.innerHTML = "");
+  Object.values(cols).forEach(col => (col.innerHTML = ""));
 
   projects.forEach(p => {
-    const normalizedStatus = STATUSES.includes(p.status)
-      ? p.status
-      : "Idea";
+    const status = STATUSES.includes(p.status) ? p.status : "Idea";
 
     const bubble = document.createElement("div");
     bubble.className = "project-bubble";
@@ -139,10 +136,11 @@ function render() {
 
       ${p.medium ? `<p><strong>Medium:</strong> ${escapeHtml(p.medium)}</p>` : ""}
 
-      <label>Status:
+      <label>
+        Status
         <select class="status-select">
-          ${STATUSES.map(s =>
-            `<option ${normalizedStatus === s ? "selected" : ""}>${s}</option>`
+          ${STATUSES.map(
+            s => `<option ${s === status ? "selected" : ""}>${s}</option>`
           ).join("")}
         </select>
       </label>
@@ -152,18 +150,18 @@ function render() {
         <textarea>${escapeHtml(p.notes || "")}</textarea>
       </details>
 
-      <button class="delete-btn">Delete</button>
+      <button class="delete-btn" type="button">Delete</button>
     `;
 
     /* Status change */
-    bubble.querySelector(".status-select").onchange = async (e) => {
+    bubble.querySelector(".status-select").onchange = async e => {
       p.status = e.target.value.trim();
       await updateProject(p);
       render();
     };
 
-    /* Notes change */
-    bubble.querySelector("textarea").oninput = async (e) => {
+    /* Notes */
+    bubble.querySelector("textarea").oninput = async e => {
       p.notes = e.target.value;
       await updateProject(p);
     };
@@ -175,11 +173,22 @@ function render() {
       render();
     };
 
-    cols[normalizedStatus].appendChild(bubble);
+    cols[status].appendChild(bubble);
   });
 
   updateStatusGraph();
 }
+
+/* =============================
+   GLOBAL CLICK HANDLER
+   (fixes logout reliability)
+============================= */
+document.addEventListener("click", async e => {
+  if (e.target?.id === "logoutBtnTop") {
+    e.preventDefault();
+    await supabase.auth.signOut();
+  }
+});
 
 /* =============================
    BOOT
@@ -189,7 +198,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const passwordInput = document.getElementById("password");
   const loginBtn = document.getElementById("loginBtn");
   const registerBtn = document.getElementById("registerBtn");
-  const logoutBtn = document.getElementById("logoutBtnTop");
+  const projectForm = document.getElementById("project-form");
 
   loginBtn.onclick = async () => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -208,10 +217,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     else alert("Registered! You can now log in.");
   };
 
-  logoutBtn.onclick = async () => {
-    await supabase.auth.signOut();
-  };
-
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
@@ -225,6 +230,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  /* Restore session */
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
@@ -233,8 +239,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     render();
   }
 
-  document.getElementById("project-form").addEventListener("submit", async (e) => {
+  /* Add project (bulletproof) */
+  projectForm.addEventListener("submit", async e => {
     e.preventDefault();
+    e.stopPropagation();
+
     if (!currentUser) return alert("Please log in.");
 
     const project = {
@@ -249,10 +258,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (!project.title) return alert("Title required.");
 
-    await insertProject(project);
-    projects = await fetchProjects();
-    e.target.reset();
-    render();
+    try {
+      await insertProject(project);
+      projects = await fetchProjects();
+      render();
+      projectForm.reset();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add project.");
+    }
   });
 });
 
@@ -265,7 +279,6 @@ function escapeHtml(str) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }
-
 
 
 
