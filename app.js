@@ -52,7 +52,9 @@ function updateStatusGraph() {
 
   const counts = {};
   STATUSES.forEach(s => counts[s] = 0);
-  projects.forEach(p => counts[p.status]++);
+  projects.forEach(p => {
+    if (counts[p.status] !== undefined) counts[p.status]++;
+  });
 
   const total = projects.length;
   if (total === 0) return;
@@ -111,13 +113,6 @@ async function deleteProject(id) {
 }
 
 /* =============================
-   IMAGE HELPERS (unchanged)
-============================= */
-function imagePath(projectId, filename) {
-  return `${currentUser.id}/${projectId}/${filename}`;
-}
-
-/* =============================
    RENDER
 ============================= */
 function render() {
@@ -132,6 +127,10 @@ function render() {
   Object.values(cols).forEach(col => col.innerHTML = "");
 
   projects.forEach(p => {
+    const normalizedStatus = STATUSES.includes(p.status)
+      ? p.status
+      : "Idea";
+
     const bubble = document.createElement("div");
     bubble.className = "project-bubble";
 
@@ -143,7 +142,7 @@ function render() {
       <label>Status:
         <select class="status-select">
           ${STATUSES.map(s =>
-            `<option ${p.status === s ? "selected" : ""}>${s}</option>`
+            `<option ${normalizedStatus === s ? "selected" : ""}>${s}</option>`
           ).join("")}
         </select>
       </label>
@@ -158,7 +157,7 @@ function render() {
 
     /* Status change */
     bubble.querySelector(".status-select").onchange = async (e) => {
-      p.status = e.target.value;
+      p.status = e.target.value.trim();
       await updateProject(p);
       render();
     };
@@ -176,7 +175,7 @@ function render() {
       render();
     };
 
-    cols[p.status].appendChild(bubble);
+    cols[normalizedStatus].appendChild(bubble);
   });
 
   updateStatusGraph();
@@ -194,7 +193,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   loginBtn.onclick = async () => {
     const { error } = await supabase.auth.signInWithPassword({
-      email: emailInput.value,
+      email: emailInput.value.trim(),
       password: passwordInput.value
     });
     if (error) alert(error.message);
@@ -202,7 +201,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   registerBtn.onclick = async () => {
     const { error } = await supabase.auth.signUp({
-      email: emailInput.value,
+      email: emailInput.value.trim(),
       password: passwordInput.value
     });
     if (error) alert(error.message);
@@ -234,10 +233,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     render();
   }
 
-  /* ADD PROJECT */
   document.getElementById("project-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-
     if (!currentUser) return alert("Please log in.");
 
     const project = {
@@ -246,7 +243,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       title: document.getElementById("title").value.trim(),
       type: document.getElementById("type").value.trim(),
       medium: document.getElementById("medium").value.trim(),
-      status: document.getElementById("status").value,
+      status: document.getElementById("status").value.trim(),
       notes: ""
     };
 
@@ -268,7 +265,6 @@ function escapeHtml(str) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }
-
 
 
 
