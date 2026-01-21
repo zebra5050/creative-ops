@@ -1,5 +1,8 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
+/* =============================
+   SUPABASE CONFIG
+============================= */
 const SUPABASE_URL = "https://pavagjywyubnbmzejojp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XQouTjRTbiSuLsog-ZghGw_x4f9APJy";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -8,13 +11,18 @@ const BUCKET = "project-images";
 
 console.log("app.js loaded ✅");
 
+/* =============================
+   STATE
+============================= */
 let projects = [];
 let currentUser = null;
 let searchQuery = "";
 
 const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 
-/* ---------- helpers ---------- */
+/* =============================
+   HELPERS
+============================= */
 function $(id) { return document.getElementById(id); }
 
 function escapeHtml(str) {
@@ -33,6 +41,12 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
+/* Tags parsing:
+   Accepts:
+   - "#art #crochet"
+   - "art, crochet"
+   - "art crochet"
+*/
 function parseTags(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return [];
@@ -54,7 +68,17 @@ function normalizeTags(value) {
   return [];
 }
 
-/* ---------- modal ---------- */
+function debounce(fn, wait = 500) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
+/* =============================
+   IMAGE MODAL
+============================= */
 function setupImageModal() {
   const modal = $("imgModal");
   const img = $("imgModalImage");
@@ -81,12 +105,15 @@ function setupImageModal() {
   };
 }
 
-/* ---------- ui ---------- */
+/* =============================
+   UI
+============================= */
 function setLoggedInUI(email) {
   const auth = $("auth");
   const app = $("app");
   if (auth) auth.style.display = "none";
   if (app) app.style.display = "block";
+
   const statusApp = $("authStatusApp");
   if (statusApp) statusApp.textContent = `Logged in as ${email}`;
 }
@@ -96,13 +123,17 @@ function setLoggedOutUI() {
   const app = $("app");
   if (auth) auth.style.display = "block";
   if (app) app.style.display = "none";
+
   const statusAuth = $("authStatusAuth");
   if (statusAuth) statusAuth.textContent = "Not logged in";
+
   const statusApp = $("authStatusApp");
   if (statusApp) statusApp.textContent = "";
 }
 
-/* ---------- status graph ---------- */
+/* =============================
+   STATUS BAR
+============================= */
 function updateStatusGraph() {
   const graph = $("status-graph");
   if (!graph) return;
@@ -128,6 +159,7 @@ function updateStatusGraph() {
   for (const status of STATUSES) {
     const c = counts[status];
     if (c === 0) continue;
+
     const seg = document.createElement("div");
     seg.style.width = `${(c / total) * 100}%`;
     seg.style.height = "100%";
@@ -137,7 +169,9 @@ function updateStatusGraph() {
   }
 }
 
-/* ---------- db projects ---------- */
+/* =============================
+   DB: PROJECTS
+============================= */
 async function fetchProjects() {
   const { data, error } = await supabase
     .from("projects")
@@ -147,7 +181,6 @@ async function fetchProjects() {
 
   if (error) throw error;
 
-  // normalize tags so render always shows them
   return (data || []).map(p => ({ ...p, tags: normalizeTags(p.tags) }));
 }
 
@@ -160,6 +193,9 @@ async function updateProject(project) {
   const { error } = await supabase
     .from("projects")
     .update({
+      title: project.title,
+      type: project.type,
+      medium: project.medium,
       status: project.status,
       notes: project.notes,
       tags: project.tags || []
@@ -180,7 +216,9 @@ async function deleteProject(projectId) {
   if (error) throw error;
 }
 
-/* ---------- db images ---------- */
+/* =============================
+   DB: IMAGES
+============================= */
 async function listProjectImages(projectId) {
   const { data, error } = await supabase
     .from("project_images")
@@ -221,7 +259,10 @@ async function uploadProjectImage(projectId, file, caption) {
 
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+    .upload(path, file, {
+      upsert: false,
+      contentType: file.type || "image/jpeg"
+    });
 
   if (upErr) throw upErr;
 
@@ -248,12 +289,14 @@ async function deleteProjectImage(imageId, path) {
   if (dbErr) throw dbErr;
 }
 
-/* ---------- search ---------- */
+/* =============================
+   SEARCH FILTER
+============================= */
 function getFilteredProjects() {
-  const q = searchQuery.trim().toLowerCase();
-  if (!q) return projects;
+  const qRaw = searchQuery.trim().toLowerCase();
+  if (!qRaw) return projects;
 
-  const needle = q.startsWith("#") ? q.slice(1) : q;
+  const q = qRaw.startsWith("#") ? qRaw.slice(1) : qRaw;
 
   return projects.filter(p => {
     const title = String(p.title || "").toLowerCase();
@@ -262,15 +305,17 @@ function getFilteredProjects() {
     const tags = Array.isArray(p.tags) ? p.tags.join(" ").toLowerCase() : "";
 
     return (
-      title.includes(needle) ||
-      medium.includes(needle) ||
-      type.includes(needle) ||
-      tags.includes(needle)
+      title.includes(q) ||
+      medium.includes(q) ||
+      type.includes(q) ||
+      tags.includes(q)
     );
   });
 }
 
-/* ---------- render ---------- */
+/* =============================
+   RENDER
+============================= */
 async function refreshImageGrid(projectId, gridEl) {
   if (!gridEl) return;
   gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
@@ -287,6 +332,7 @@ async function refreshImageGrid(projectId, gridEl) {
     for (const img of images) {
       const card = document.createElement("div");
       card.className = "image-card";
+
       const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
 
       card.innerHTML = `
@@ -332,7 +378,7 @@ async function render() {
   };
 
   for (const k of Object.keys(cols)) {
-    if (!cols[k]) return;
+    if (!cols[k]) return; // not on dashboard page
     cols[k].innerHTML = "";
   }
 
@@ -342,20 +388,31 @@ async function render() {
     const status = STATUSES.includes(p.status) ? p.status : "Idea";
     const tags = normalizeTags(p.tags);
 
-    const tagHtml = tags.length
-      ? `<div class="tag-row">
-          ${tags.map(t => `<span class="tag-chip" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`).join("")}
-         </div>`
-      : "";
-
     const bubble = document.createElement("div");
     bubble.className = "project-bubble";
     bubble.dataset.projectId = String(p.id);
 
+    const tagsHtml = `
+      <div class="tag-row editable-tags">
+        ${tags.map(t => `
+          <span class="tag-chip editable" data-tag="${escapeHtml(t)}">
+            #${escapeHtml(t)}
+            <button class="tag-remove" type="button" title="Remove tag">×</button>
+          </span>
+        `).join("")}
+        <input class="tag-input" type="text" placeholder="+ tag" spellcheck="false" />
+      </div>
+    `;
+
     bubble.innerHTML = `
-      <h4>${escapeHtml(p.title)}</h4>
-      ${p.medium ? `<p><strong>Medium:</strong> ${escapeHtml(p.medium)}</p>` : ""}
-      ${tagHtml}
+      <input class="edit-title" value="${escapeHtml(p.title)}" />
+
+      <div class="edit-row">
+        <input class="edit-type" value="${escapeHtml(p.type || "")}" placeholder="Type (optional)" />
+        <input class="edit-medium" value="${escapeHtml(p.medium || "")}" placeholder="Medium / tools" />
+      </div>
+
+      ${tagsHtml}
 
       <label>
         Status
@@ -395,38 +452,66 @@ async function render() {
   updateStatusGraph();
 }
 
-/* ---------- events ---------- */
+/* =============================
+   MUTATION HELPERS
+============================= */
+function findProjectFromEventTarget(target) {
+  const bubble = target.closest(".project-bubble");
+  const id = bubble?.dataset?.projectId;
+  if (!id) return null;
+  return projects.find(x => String(x.id) === String(id)) || null;
+}
+
+const saveProjectDebounced = debounce(async (project) => {
+  try {
+    await updateProject(project);
+  } catch (err) {
+    console.error(err);
+  }
+}, 600);
+
+/* =============================
+   EVENTS
+============================= */
 document.addEventListener("click", async (e) => {
-  // logout
+  // Logout
   if (e.target.closest("#logoutBtnTop")) {
     e.preventDefault();
     await supabase.auth.signOut();
     return;
   }
 
-  // clicking a tag chip => search it
-  const chip = e.target.closest(".tag-chip");
-  if (chip) {
-    const t = chip.getAttribute("data-tag");
-    const search = $("searchInput");
-    if (search) {
-      search.value = `#${t}`;
-      searchQuery = `#${t}`;
+  // Remove tag
+  const removeBtn = e.target.closest(".tag-remove");
+  if (removeBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const tagSpan = removeBtn.closest(".tag-chip");
+    const tag = tagSpan?.getAttribute("data-tag");
+    const p = findProjectFromEventTarget(removeBtn);
+    if (!p || !tag) return;
+
+    p.tags = normalizeTags(p.tags).filter(t => t !== tag);
+    try {
+      await updateProject(p);
       await render();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not remove tag.");
     }
     return;
   }
 
-  // delete project
+  // Delete project
   const del = e.target.closest(".delete-btn");
   if (del) {
-    const bubble = e.target.closest(".project-bubble");
-    const id = bubble?.dataset?.projectId;
-    if (!id) return;
+    const p = findProjectFromEventTarget(del);
+    if (!p) return;
 
     try {
-      await deleteProject(Number(id));
-      projects = projects.filter(p => String(p.id) !== String(id));
+      await deleteProject(Number(p.id));
+      projects = projects.filter(x => String(x.id) !== String(p.id));
       await render();
     } catch (err) {
       console.error(err);
@@ -435,13 +520,13 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
-  // upload image
+  // Upload image
   const uploadBtn = e.target.closest(".image-upload-btn");
   if (uploadBtn) {
-    const bubble = e.target.closest(".project-bubble");
-    const projectId = Number(bubble?.dataset?.projectId);
-    if (!projectId) return;
+    const p = findProjectFromEventTarget(uploadBtn);
+    if (!p) return;
 
+    const bubble = uploadBtn.closest(".project-bubble");
     const fileInput = bubble.querySelector(".image-file");
     const capInput = bubble.querySelector(".image-caption");
     const grid = bubble.querySelector(".image-grid");
@@ -453,10 +538,10 @@ document.addEventListener("click", async (e) => {
     uploadBtn.textContent = "Uploading...";
 
     try {
-      await uploadProjectImage(projectId, file, capInput?.value?.trim() || "");
+      await uploadProjectImage(Number(p.id), file, capInput?.value?.trim() || "");
       if (fileInput) fileInput.value = "";
       if (capInput) capInput.value = "";
-      await refreshImageGrid(projectId, grid);
+      await refreshImageGrid(Number(p.id), grid);
     } catch (err) {
       console.error(err);
       alert(err.message || "Upload failed.");
@@ -467,43 +552,78 @@ document.addEventListener("click", async (e) => {
   }
 });
 
+document.addEventListener("keydown", async (e) => {
+  // Add tags from per-project tag input with Enter
+  const tagInput = e.target.closest(".tag-input");
+  if (tagInput && e.key === "Enter") {
+    e.preventDefault();
+
+    const p = findProjectFromEventTarget(tagInput);
+    if (!p) return;
+
+    const newTags = parseTags(tagInput.value);
+    if (newTags.length === 0) return;
+
+    const merged = [...new Set([...normalizeTags(p.tags), ...newTags])];
+    p.tags = merged;
+    tagInput.value = "";
+
+    try {
+      await updateProject(p);
+      await render();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not add tag.");
+    }
+  }
+});
+
 document.addEventListener("change", async (e) => {
+  // Status change
   const sel = e.target.closest(".status-select");
-  if (!sel) return;
+  if (sel) {
+    const p = findProjectFromEventTarget(sel);
+    if (!p) return;
 
-  const bubble = e.target.closest(".project-bubble");
-  const id = bubble?.dataset?.projectId;
-  if (!id) return;
-
-  const p = projects.find(x => String(x.id) === String(id));
-  if (!p) return;
-
-  p.status = sel.value.trim();
-
-  try {
-    await updateProject(p);
-    await render();
-  } catch (err) {
-    console.error(err);
-    alert(err.message || "Update failed.");
+    p.status = sel.value.trim();
+    try {
+      await updateProject(p);
+      await render();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Update failed.");
+    }
   }
 });
 
 document.addEventListener("input", async (e) => {
+  // Notes autosave
   const notes = e.target.closest(".notes-box");
   if (notes) {
-    const bubble = e.target.closest(".project-bubble");
-    const id = bubble?.dataset?.projectId;
-    if (!id) return;
-
-    const p = projects.find(x => String(x.id) === String(id));
+    const p = findProjectFromEventTarget(notes);
     if (!p) return;
-
     p.notes = notes.value;
-    try { await updateProject(p); } catch {}
+    saveProjectDebounced(p);
     return;
   }
 
+  // Inline edit fields autosave
+  const titleInput = e.target.closest(".edit-title");
+  const typeInput = e.target.closest(".edit-type");
+  const mediumInput = e.target.closest(".edit-medium");
+  if (titleInput || typeInput || mediumInput) {
+    const p = findProjectFromEventTarget(e.target);
+    if (!p) return;
+
+    if (titleInput) p.title = titleInput.value;
+    if (typeInput) p.type = typeInput.value;
+    if (mediumInput) p.medium = mediumInput.value;
+
+    saveProjectDebounced(p);
+    return;
+  }
+
+  // Search input
   if (e.target?.id === "searchInput") {
     searchQuery = e.target.value || "";
     await render();
@@ -543,18 +663,13 @@ document.addEventListener("submit", async (e) => {
   }
 }, true);
 
-/* ---------- init ---------- */
+/* =============================
+   INIT
+============================= */
 async function init() {
   setupImageModal();
 
-  const search = $("searchInput");
-  if (search) {
-    search.addEventListener("input", async () => {
-      searchQuery = search.value || "";
-      await render();
-    });
-  }
-
+  // Login
   const loginBtn = $("loginBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", async () => {
@@ -565,6 +680,7 @@ async function init() {
     });
   }
 
+  // Auth state
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
@@ -580,6 +696,7 @@ async function init() {
     }
   });
 
+  // Restore session
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
