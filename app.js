@@ -16,6 +16,7 @@ console.log("app.js loaded ✅");
 ============================= */
 let projects = [];
 let currentUser = null;
+let searchQuery = "";
 
 const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 
@@ -40,6 +41,31 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
+/* Tags parsing:
+   Accepts:
+   - "#art #crochet"
+   - "art, crochet"
+   - "art crochet"
+*/
+function parseTags(raw) {
+  const txt = String(raw || "").trim();
+  if (!txt) return [];
+  const parts = txt
+    .replaceAll(",", " ")
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(Boolean)
+    .map(t => t.startsWith("#") ? t.slice(1) : t)
+    .map(t => t.toLowerCase())
+    .filter(t => t.length > 0);
+
+  // unique
+  return [...new Set(parts)];
+}
+
+/* =============================
+   NOTICE CARD (register page)
+============================= */
 function showCard(el, type, title, bodyHtml) {
   if (!el) return;
   el.style.display = "block";
@@ -135,7 +161,6 @@ function updateStatusGraph() {
   for (const status of STATUSES) {
     const c = counts[status];
     if (c === 0) continue;
-
     const seg = document.createElement("div");
     seg.style.width = `${(c / total) * 100}%`;
     seg.style.height = "100%";
@@ -167,7 +192,11 @@ async function insertProject(project) {
 async function updateProject(project) {
   const { error } = await supabase
     .from("projects")
-    .update({ status: project.status, notes: project.notes })
+    .update({
+      status: project.status,
+      notes: project.notes,
+      tags: project.tags || []
+    })
     .eq("id", project.id)
     .eq("user_id", currentUser.id);
 
@@ -255,6 +284,28 @@ async function deleteProjectImage(imageId, path) {
 }
 
 /* =============================
+   SEARCH FILTER
+============================= */
+function getFilteredProjects() {
+  const q = searchQuery.trim().toLowerCase();
+  if (!q) return projects;
+
+  return projects.filter(p => {
+    const title = String(p.title || "").toLowerCase();
+    const medium = String(p.medium || "").toLowerCase();
+    const type = String(p.type || "").toLowerCase();
+    const tags = Array.isArray(p.tags) ? p.tags.join(" ").toLowerCase() : "";
+
+    return (
+      title.includes(q) ||
+      medium.includes(q) ||
+      type.includes(q) ||
+      tags.includes(q)
+    );
+  });
+}
+
+/* =============================
    RENDER
 ============================= */
 async function refreshImageGrid(projectId, gridEl) {
@@ -319,14 +370,20 @@ async function render() {
     "Completed": $("col-completed")
   };
 
-  // If we’re on register.html, these columns don’t exist.
   for (const k of Object.keys(cols)) {
-    if (!cols[k]) return;
+    if (!cols[k]) return; // register page
     cols[k].innerHTML = "";
   }
 
-  for (const p of projects) {
+  const list = getFilteredProjects();
+
+  for (const p of list) {
     const status = STATUSES.includes(p.status) ? p.status : "Idea";
+
+    const tags = Array.isArray(p.tags) ? p.tags : [];
+    const tagHtml = tags.length
+      ? `<div class="tag-row">${tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join("")}</div>`
+      : "";
 
     const bubble = document.createElement("div");
     bubble.className = "project-bubble";
@@ -335,6 +392,7 @@ async function render() {
     bubble.innerHTML = `
       <h4>${escapeHtml(p.title)}</h4>
       ${p.medium ? `<p><strong>Medium:</strong> ${escapeHtml(p.medium)}</p>` : ""}
+      ${tagHtml}
 
       <label>
         Status
@@ -378,14 +436,12 @@ async function render() {
    EVENTS (delegation)
 ============================= */
 document.addEventListener("click", async (e) => {
-  // Logout
   if (e.target.closest("#logoutBtnTop")) {
     e.preventDefault();
     await supabase.auth.signOut();
     return;
   }
 
-  // Delete project
   const del = e.target.closest(".delete-btn");
   if (del) {
     const bubble = e.target.closest(".project-bubble");
@@ -403,7 +459,6 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
-  // Upload image
   const uploadBtn = e.target.closest(".image-upload-btn");
   if (uploadBtn) {
     const bubble = e.target.closest(".project-bubble");
@@ -459,21 +514,23 @@ document.addEventListener("change", async (e) => {
 
 document.addEventListener("input", async (e) => {
   const notes = e.target.closest(".notes-box");
-  if (!notes) return;
+  if (notes) {
+    const bubble = e.target.closest(".project-bubble");
+    const id = bubble?.dataset?.projectId;
+    if (!id) return;
 
-  const bubble = e.target.closest(".project-bubble");
-  const id = bubble?.dataset?.projectId;
-  if (!id) return;
+    const p = projects.find(x => String(x.id) === String(id));
+    if (!p) return;
 
-  const p = projects.find(x => String(x.id) === String(id));
-  if (!p) return;
+    p.notes = notes.value;
+    try { await updateProject(p); } catch {}
+    return;
+  }
 
-  p.notes = notes.value;
-
-  try {
-    await updateProject(p);
-  } catch (err) {
-    console.error(err);
+  // Search input
+  if (e.target?.id === "searchInput") {
+    searchQuery = e.target.value || "";
+    await render();
   }
 }, { passive: true });
 
@@ -484,10 +541,7 @@ document.addEventListener("submit", async (e) => {
   e.preventDefault();
   e.stopPropagation();
 
-  if (!currentUser) {
-    alert("Please log in first.");
-    return;
-  }
+  if (!currentUser) return alert("Please log in first.");
 
   const project = {
     id: Date.now(),
@@ -495,14 +549,12 @@ document.addEventListener("submit", async (e) => {
     title: ($("title")?.value || "").trim(),
     type: ($("type")?.value || "").trim(),
     medium: ($("medium")?.value || "").trim(),
+    tags: parseTags(($("tags")?.value || "")),
     status: ($("status")?.value || "Idea").trim(),
     notes: ""
   };
 
-  if (!project.title) {
-    alert("Project title is required.");
-    return;
-  }
+  if (!project.title) return alert("Project title is required.");
 
   try {
     await insertProject(project);
@@ -519,11 +571,18 @@ document.addEventListener("submit", async (e) => {
    INIT
 ============================= */
 async function init() {
-  console.log("init() running ✅");
-
   setupImageModal();
 
-  /* -------- Login page (index.html) -------- */
+  // Search input hookup (only exists on index.html)
+  const searchInput = $("searchInput");
+  if (searchInput) {
+    searchInput.addEventListener("input", async () => {
+      searchQuery = searchInput.value || "";
+      await render();
+    });
+  }
+
+  // Login page
   const loginBtn = $("loginBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", async () => {
@@ -534,7 +593,7 @@ async function init() {
     });
   }
 
-  /* -------- Register page (register.html) -------- */
+  // Register page features (if you still have them)
   const registerPageBtn = $("registerPageBtn");
   const resendConfirmBtn = $("resendConfirmBtn");
   const forgotPasswordBtn = $("forgotPasswordBtn");
@@ -550,25 +609,21 @@ async function init() {
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({ email, password });
 
       if (error) {
         showCard(registerCard, "notice-error", "Couldn’t create account", escapeHtml(error.message));
         return;
       }
 
-      // If email confirmations are enabled, user may not have a session yet.
       showCard(
         registerCard,
         "notice-success",
         "Account created!",
-        `
-          <p>✅ We sent a confirmation email to <strong>${escapeHtml(email)}</strong>.</p>
-          <p>Please click the link in that email to verify your account, then return to <a href="index.html">Login</a>.</p>
-        `
+        `<p>✅ Check <strong>${escapeHtml(email)}</strong> for a confirmation email.</p>
+         <p>After verifying, return to <a href="index.html">Login</a>.</p>`
       );
 
-      // Nice UX: disable create button to prevent spam clicks
       registerPageBtn.disabled = true;
       registerPageBtn.textContent = "Check your email ✉️";
     });
@@ -577,64 +632,41 @@ async function init() {
   if (resendConfirmBtn) {
     resendConfirmBtn.addEventListener("click", async () => {
       const email = ($("regEmail")?.value || "").trim();
-
       if (!email) {
-        showCard(registerCard, "notice-error", "Enter your email", "Type your email above so we know where to resend.");
+        showCard(registerCard, "notice-error", "Enter your email", "Type your email above so we can resend.");
         return;
       }
-
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email
-      });
-
+      const { error } = await supabase.auth.resend({ type: "signup", email });
       if (error) {
         showCard(registerCard, "notice-error", "Couldn’t resend", escapeHtml(error.message));
         return;
       }
-
-      showCard(
-        registerCard,
-        "notice-info",
-        "Confirmation resent",
-        `<p>📩 We resent the confirmation email to <strong>${escapeHtml(email)}</strong>.</p>`
-      );
+      showCard(registerCard, "notice-info", "Confirmation resent", `<p>📩 Sent to <strong>${escapeHtml(email)}</strong>.</p>`);
     });
   }
 
   if (forgotPasswordBtn) {
     forgotPasswordBtn.addEventListener("click", async () => {
       const email = ($("regEmail")?.value || "").trim();
-
       if (!email) {
         showCard(registerCard, "notice-error", "Enter your email", "Type your email above and we’ll send a reset link.");
         return;
       }
-
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        // Change if you later add a dedicated reset page:
         redirectTo: `${window.location.origin}/index.html`
       });
-
       if (error) {
         showCard(registerCard, "notice-error", "Couldn’t send reset link", escapeHtml(error.message));
         return;
       }
-
-      showCard(
-        registerCard,
-        "notice-info",
-        "Password reset sent",
-        `<p>🔐 We sent a password reset email to <strong>${escapeHtml(email)}</strong>.</p>`
-      );
+      showCard(registerCard, "notice-info", "Password reset sent", `<p>🔐 Sent to <strong>${escapeHtml(email)}</strong>.</p>`);
     });
   }
 
-  /* -------- Auth state (dashboard only on index.html) -------- */
+  // Auth state
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
-
       if ($("project-form")) {
         setLoggedInUI(session.user.email || "user");
         projects = await fetchProjects();
@@ -647,7 +679,7 @@ async function init() {
     }
   });
 
-  /* -------- Restore session -------- */
+  // Restore session
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
@@ -661,12 +693,12 @@ async function init() {
   }
 }
 
-/* Run init no matter when script loads */
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init, { once: true });
 } else {
   init();
 }
+
 
 
 
