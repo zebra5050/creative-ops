@@ -5,10 +5,20 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 ============================= */
 const SUPABASE_URL = "https://pavagjywyubnbmzejojp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XQouTjRTbiSuLsog-ZghGw_x4f9APJy";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 
 const BUCKET = "project-images";
 
+/* =============================
+   STATE
+============================= */
 let projects = [];
 let currentUser = null;
 let searchQuery = "";
@@ -19,6 +29,29 @@ const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
    HELPERS
 ============================= */
 function $(id) { return document.getElementById(id); }
+
+function showErrorBanner(msg) {
+  const wrap = $("errorBanner");
+  const text = $("errorBannerMsg");
+  if (!wrap || !text) return;
+  text.textContent = msg || "Unknown error";
+  wrap.style.display = "block";
+}
+
+function clearErrorBanner() {
+  const wrap = $("errorBanner");
+  if (wrap) wrap.style.display = "none";
+}
+
+window.addEventListener("error", (e) => {
+  console.error("Window error:", e.error || e.message);
+  showErrorBanner(String(e.error?.message || e.message || e));
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("Unhandled rejection:", e.reason);
+  showErrorBanner(String(e.reason?.message || e.reason || "Unhandled promise rejection"));
+});
 
 function escapeHtml(str) {
   return String(str ?? "")
@@ -247,10 +280,7 @@ async function uploadProjectImage(projectId, file, caption) {
 
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, {
-      upsert: false,
-      contentType: file.type || "image/jpeg"
-    });
+    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
 
   if (upErr) throw upErr;
 
@@ -278,7 +308,7 @@ async function deleteProjectImage(imageId, path) {
 }
 
 /* =============================
-   SEARCH FILTER
+   SEARCH
 ============================= */
 function getFilteredProjects() {
   const qRaw = searchQuery.trim().toLowerCase();
@@ -291,68 +321,57 @@ function getFilteredProjects() {
     const medium = String(p.medium || "").toLowerCase();
     const type = String(p.type || "").toLowerCase();
     const tags = Array.isArray(p.tags) ? p.tags.join(" ").toLowerCase() : "";
-
-    return (
-      title.includes(q) ||
-      medium.includes(q) ||
-      type.includes(q) ||
-      tags.includes(q)
-    );
+    return title.includes(q) || medium.includes(q) || type.includes(q) || tags.includes(q);
   });
 }
 
 /* =============================
-   RENDER
+   RENDER (SAFE)
 ============================= */
 async function refreshImageGrid(projectId, gridEl) {
   if (!gridEl) return;
   gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
 
-  try {
-    const images = await listProjectImages(projectId);
-    if (images.length === 0) {
-      gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
-      return;
-    }
+  const images = await listProjectImages(projectId);
 
-    gridEl.innerHTML = "";
+  if (images.length === 0) {
+    gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
+    return;
+  }
 
-    for (const img of images) {
-      const card = document.createElement("div");
-      card.className = "image-card";
+  gridEl.innerHTML = "";
 
-      const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
+  for (const img of images) {
+    const card = document.createElement("div");
+    card.className = "image-card";
+    const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
 
-      card.innerHTML = `
-        <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
-        <div class="image-meta">
-          <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
-          <div class="image-date">${date}</div>
-        </div>
-        <button class="image-delete" type="button" title="Delete image">✕</button>
-      `;
+    card.innerHTML = `
+      <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
+      <div class="image-meta">
+        <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
+        <div class="image-date">${date}</div>
+      </div>
+      <button class="image-delete" type="button" title="Delete image">✕</button>
+    `;
 
-      card.querySelector(".image-thumb").addEventListener("click", (e) => {
-        e.stopPropagation();
-        window.__openImageModal?.(img.url, img.caption || "");
-      });
+    card.querySelector(".image-thumb").addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.__openImageModal?.(img.url, img.caption || "");
+    });
 
-      card.querySelector(".image-delete").addEventListener("click", async (e) => {
-        e.stopPropagation();
-        try {
-          await deleteProjectImage(img.id, img.path);
-          await refreshImageGrid(projectId, gridEl);
-        } catch (err) {
-          console.error(err);
-          alert(err.message || "Delete failed");
-        }
-      });
+    card.querySelector(".image-delete").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await deleteProjectImage(img.id, img.path);
+        await safeRender(); // refresh UI safely
+      } catch (err) {
+        console.error(err);
+        showErrorBanner(err.message || "Delete image failed");
+      }
+    });
 
-      gridEl.appendChild(card);
-    }
-  } catch (err) {
-    console.error(err);
-    gridEl.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
+    gridEl.appendChild(card);
   }
 }
 
@@ -367,7 +386,12 @@ async function render() {
 
   for (const k of Object.keys(cols)) {
     if (!cols[k]) return;
-    cols[k].innerHTML = "";
+  }
+
+  // Build in a temp container FIRST so a crash doesn't wipe the UI
+  const temp = {};
+  for (const status of STATUSES) {
+    temp[status] = document.createElement("div");
   }
 
   const list = getFilteredProjects();
@@ -394,7 +418,6 @@ async function render() {
 
     bubble.innerHTML = `
       <input class="edit-title" value="${escapeHtml(p.title)}" />
-
       <div class="edit-row">
         <input class="edit-type" value="${escapeHtml(p.type || "")}" placeholder="Type (optional)" />
         <input class="edit-medium" value="${escapeHtml(p.medium || "")}" placeholder="Medium / tools" />
@@ -416,28 +439,59 @@ async function render() {
 
       <details class="images-details">
         <summary>Images</summary>
-
         <div class="image-uploader">
           <input class="image-file" type="file" accept="image/*" />
           <input class="image-caption" type="text" placeholder="Caption (optional)" />
           <button class="image-upload-btn" type="button">Upload</button>
         </div>
-
-        <div class="image-grid">
-          <div class="image-empty">Loading...</div>
-        </div>
+        <div class="image-grid"><div class="image-empty">Loading...</div></div>
       </details>
 
       <button class="delete-btn" type="button">Delete</button>
     `;
 
-    cols[status].appendChild(bubble);
+    temp[status].appendChild(bubble);
+  }
 
+  // Swap in ONLY after successful build
+  for (const status of STATUSES) {
+    const colId =
+      status === "In Progress" ? "col-inprogress" :
+      status === "Idea" ? "col-idea" :
+      status === "Planning" ? "col-planning" :
+      status === "Paused" ? "col-paused" :
+      "col-completed";
+
+    const realCol = $(colId);
+    realCol.innerHTML = "";
+    while (temp[status].firstChild) realCol.appendChild(temp[status].firstChild);
+  }
+
+  // Now load images (if this fails, UI still exists)
+  const bubbles = document.querySelectorAll(".project-bubble");
+  for (const bubble of bubbles) {
+    const projectId = Number(bubble.dataset.projectId);
     const grid = bubble.querySelector(".image-grid");
-    await refreshImageGrid(p.id, grid);
+    try {
+      await refreshImageGrid(projectId, grid);
+    } catch (err) {
+      console.error(err);
+      // keep going; don't kill render
+      if (grid) grid.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
+    }
   }
 
   updateStatusGraph();
+}
+
+async function safeRender() {
+  try {
+    clearErrorBanner();
+    await render();
+  } catch (err) {
+    console.error("Render failed:", err);
+    showErrorBanner(err.message || "Render crashed");
+  }
 }
 
 /* =============================
@@ -455,6 +509,7 @@ const saveProjectDebounced = debounce(async (project) => {
     await updateProject(project);
   } catch (err) {
     console.error(err);
+    showErrorBanner(err.message || "Save failed");
   }
 }, 600);
 
@@ -462,168 +517,155 @@ const saveProjectDebounced = debounce(async (project) => {
    EVENTS
 ============================= */
 document.addEventListener("click", async (e) => {
-  // Logout
-  if (e.target.closest("#logoutBtnTop")) {
-    e.preventDefault();
-    await supabase.auth.signOut();
-    return;
-  }
+  try {
+    if (e.target.closest("#logoutBtnTop")) {
+      e.preventDefault();
+      await supabase.auth.signOut();
+      return;
+    }
 
-  // Remove tag
-  const removeBtn = e.target.closest(".tag-remove");
-  if (removeBtn) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const tagSpan = removeBtn.closest(".tag-chip");
-    const tag = tagSpan?.getAttribute("data-tag");
-    const p = findProjectFromEventTarget(removeBtn);
-    if (!p || !tag) return;
-
-    p.tags = normalizeTags(p.tags).filter(t => t !== tag);
-
-    try {
+    const removeBtn = e.target.closest(".tag-remove");
+    if (removeBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const tagSpan = removeBtn.closest(".tag-chip");
+      const tag = tagSpan?.getAttribute("data-tag");
+      const p = findProjectFromEventTarget(removeBtn);
+      if (!p || !tag) return;
+      p.tags = normalizeTags(p.tags).filter(t => t !== tag);
       await updateProject(p);
-      await render();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Could not remove tag.");
+      projects = await fetchProjects();
+      await safeRender();
+      return;
     }
-    return;
-  }
 
-  // Delete project
-  const del = e.target.closest(".delete-btn");
-  if (del) {
-    const p = findProjectFromEventTarget(del);
-    if (!p) return;
-
-    try {
+    const del = e.target.closest(".delete-btn");
+    if (del) {
+      const p = findProjectFromEventTarget(del);
+      if (!p) return;
       await deleteProject(Number(p.id));
-      projects = projects.filter(x => String(x.id) !== String(p.id));
-      await render();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Delete failed.");
+      projects = await fetchProjects();
+      await safeRender();
+      return;
     }
-    return;
-  }
 
-  // Upload image
-  const uploadBtn = e.target.closest(".image-upload-btn");
-  if (uploadBtn) {
-    const p = findProjectFromEventTarget(uploadBtn);
-    if (!p) return;
+    const uploadBtn = e.target.closest(".image-upload-btn");
+    if (uploadBtn) {
+      const p = findProjectFromEventTarget(uploadBtn);
+      if (!p) return;
 
-    const bubble = uploadBtn.closest(".project-bubble");
-    const fileInput = bubble.querySelector(".image-file");
-    const capInput = bubble.querySelector(".image-caption");
-    const grid = bubble.querySelector(".image-grid");
+      const bubble = uploadBtn.closest(".project-bubble");
+      const fileInput = bubble.querySelector(".image-file");
+      const capInput = bubble.querySelector(".image-caption");
+      const file = fileInput?.files?.[0];
+      if (!file) return alert("Pick an image first.");
 
-    const file = fileInput?.files?.[0];
-    if (!file) return alert("Pick an image first.");
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = "Uploading...";
 
-    uploadBtn.disabled = true;
-    uploadBtn.textContent = "Uploading...";
-
-    try {
       await uploadProjectImage(Number(p.id), file, capInput?.value?.trim() || "");
+
       if (fileInput) fileInput.value = "";
       if (capInput) capInput.value = "";
-      await refreshImageGrid(Number(p.id), grid);
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Upload failed.");
-    } finally {
+
+      projects = await fetchProjects();
+      await safeRender();
+
       uploadBtn.disabled = false;
       uploadBtn.textContent = "Upload";
+      return;
     }
+  } catch (err) {
+    console.error(err);
+    showErrorBanner(err.message || "Click handler failed");
   }
 });
 
 document.addEventListener("keydown", async (e) => {
-  // Add tags with Enter
-  const tagInput = e.target.closest(".tag-input");
-  if (tagInput && e.key === "Enter") {
-    e.preventDefault();
-
-    const p = findProjectFromEventTarget(tagInput);
-    if (!p) return;
-
-    const newTags = parseTags(tagInput.value);
-    if (newTags.length === 0) return;
-
-    p.tags = [...new Set([...normalizeTags(p.tags), ...newTags])];
-    tagInput.value = "";
-
-    try {
-      await updateProject(p);
-      await render();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Could not add tag.");
-    }
-  }
-
-  // Nice mobile UX: Enter on edit fields = blur (save) instead of newline
-  if (e.key === "Enter") {
-    const isEditField = e.target.closest(".edit-title, .edit-type, .edit-medium");
-    if (isEditField) {
+  try {
+    const tagInput = e.target.closest(".tag-input");
+    if (tagInput && e.key === "Enter") {
       e.preventDefault();
-      e.target.blur();
+      const p = findProjectFromEventTarget(tagInput);
+      if (!p) return;
+
+      const newTags = parseTags(tagInput.value);
+      if (newTags.length === 0) return;
+
+      p.tags = [...new Set([...normalizeTags(p.tags), ...newTags])];
+      tagInput.value = "";
+
+      await updateProject(p);
+      projects = await fetchProjects();
+      await safeRender();
+      return;
     }
+
+    if (e.key === "Enter") {
+      const isEditField = e.target.closest(".edit-title, .edit-type, .edit-medium");
+      if (isEditField) {
+        e.preventDefault();
+        e.target.blur();
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    showErrorBanner(err.message || "Key handler failed");
   }
 });
 
 document.addEventListener("change", async (e) => {
-  // Status change
-  const sel = e.target.closest(".status-select");
-  if (sel) {
+  try {
+    const sel = e.target.closest(".status-select");
+    if (!sel) return;
+
     const p = findProjectFromEventTarget(sel);
     if (!p) return;
 
     p.status = sel.value.trim();
-    try {
-      await updateProject(p);
-      await render();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Update failed.");
-    }
+    await updateProject(p);
+
+    projects = await fetchProjects();
+    await safeRender();
+  } catch (err) {
+    console.error(err);
+    showErrorBanner(err.message || "Status update failed");
   }
 });
 
 document.addEventListener("input", async (e) => {
-  // Notes autosave
-  const notes = e.target.closest(".notes-box");
-  if (notes) {
-    const p = findProjectFromEventTarget(notes);
-    if (!p) return;
-    p.notes = notes.value;
-    saveProjectDebounced(p);
-    return;
-  }
+  try {
+    const notes = e.target.closest(".notes-box");
+    if (notes) {
+      const p = findProjectFromEventTarget(notes);
+      if (!p) return;
+      p.notes = notes.value;
+      saveProjectDebounced(p);
+      return;
+    }
 
-  // Inline edit autosave
-  const titleInput = e.target.closest(".edit-title");
-  const typeInput = e.target.closest(".edit-type");
-  const mediumInput = e.target.closest(".edit-medium");
-  if (titleInput || typeInput || mediumInput) {
-    const p = findProjectFromEventTarget(e.target);
-    if (!p) return;
+    const titleInput = e.target.closest(".edit-title");
+    const typeInput = e.target.closest(".edit-type");
+    const mediumInput = e.target.closest(".edit-medium");
+    if (titleInput || typeInput || mediumInput) {
+      const p = findProjectFromEventTarget(e.target);
+      if (!p) return;
 
-    if (titleInput) p.title = titleInput.value;
-    if (typeInput) p.type = typeInput.value;
-    if (mediumInput) p.medium = mediumInput.value;
+      if (titleInput) p.title = titleInput.value;
+      if (typeInput) p.type = typeInput.value;
+      if (mediumInput) p.medium = mediumInput.value;
 
-    saveProjectDebounced(p);
-    return;
-  }
+      saveProjectDebounced(p);
+      return;
+    }
 
-  // Search input
-  if (e.target?.id === "searchInput") {
-    searchQuery = e.target.value || "";
-    await render();
+    if (e.target?.id === "searchInput") {
+      searchQuery = e.target.value || "";
+      await safeRender();
+    }
+  } catch (err) {
+    console.error(err);
+    showErrorBanner(err.message || "Input handler failed");
   }
 }, { passive: true });
 
@@ -634,28 +676,31 @@ document.addEventListener("submit", async (e) => {
   e.preventDefault();
   e.stopPropagation();
 
-  if (!currentUser) return alert("Please log in first.");
-
-  const project = {
-    id: Date.now(),
-    user_id: currentUser.id,
-    title: ($("title")?.value || "").trim(),
-    type: ($("type")?.value || "").trim(),
-    medium: ($("medium")?.value || "").trim(),
-    tags: parseTags(($("tags")?.value || "")),
-    status: ($("status")?.value || "Idea").trim(),
-    notes: ""
-  };
-
-  if (!project.title) return alert("Project title is required.");
-
   try {
+    if (!currentUser) return alert("Please log in first.");
+
+    const project = {
+      id: Date.now(),
+      user_id: currentUser.id,
+      title: ($("title")?.value || "").trim(),
+      type: ($("type")?.value || "").trim(),
+      medium: ($("medium")?.value || "").trim(),
+      tags: parseTags(($("tags")?.value || "")),
+      status: ($("status")?.value || "Idea").trim(),
+      notes: ""
+    };
+
+    if (!project.title) return alert("Project title is required.");
+
     await insertProject(project);
+
     projects = await fetchProjects();
-    await render();
+    await safeRender();
+
     form.reset();
   } catch (err) {
     console.error(err);
+    showErrorBanner(err.message || "Add project failed");
     alert(err.message || "Failed to add project.");
   }
 }, true);
@@ -691,15 +736,12 @@ function setupMobileUX() {
     });
   }
 
-  // Optional: within a project bubble, only one details open at a time
   document.addEventListener("toggle", (e) => {
     const details = e.target;
     if (!(details instanceof HTMLDetailsElement)) return;
     if (!details.open) return;
-
     const bubble = details.closest(".project-bubble");
     if (!bubble) return;
-
     bubble.querySelectorAll("details").forEach(d => {
       if (d !== details) d.removeAttribute("open");
     });
@@ -709,51 +751,76 @@ function setupMobileUX() {
 /* =============================
    INIT
 ============================= */
+async function hardRefreshData() {
+  if (!$("project-form")) return;
+  const { data } = await supabase.auth.getSession();
+  const user = data?.session?.user;
+
+  if (!user) {
+    currentUser = null;
+    projects = [];
+    setLoggedOutUI();
+    return;
+  }
+
+  currentUser = user;
+  setLoggedInUI(user.email || "user");
+  projects = await fetchProjects();
+  await safeRender();
+}
+
 async function init() {
   setupImageModal();
-
-  // Mobile UX hooks
   setupMobileUX();
 
-  // Login
   const loginBtn = $("loginBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", async () => {
-      const email = ($("email")?.value || "").trim();
-      const password = $("password")?.value || "";
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message);
+      try {
+        const email = ($("email")?.value || "").trim();
+        const password = $("password")?.value || "";
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } catch (err) {
+        console.error(err);
+        showErrorBanner(err.message || "Login failed");
+        alert(err.message || "Login failed");
+      }
     });
   }
 
-  // Auth state
   supabase.auth.onAuthStateChange(async (_event, session) => {
-    if (session?.user) {
-      currentUser = session.user;
-      if ($("project-form")) {
-        setLoggedInUI(session.user.email || "user");
-        projects = await fetchProjects();
-        await render();
+    try {
+      if (session?.user) {
+        currentUser = session.user;
+        if ($("project-form")) {
+          setLoggedInUI(session.user.email || "user");
+          projects = await fetchProjects();
+          await safeRender();
+        }
+      } else {
+        currentUser = null;
+        projects = [];
+        if ($("project-form")) setLoggedOutUI();
       }
-    } else {
-      currentUser = null;
-      projects = [];
-      if ($("project-form")) setLoggedOutUI();
+    } catch (err) {
+      console.error(err);
+      showErrorBanner(err.message || "Auth state handler failed");
     }
   });
 
-  // Restore session
-  const { data } = await supabase.auth.getSession();
-  if (data?.session?.user) {
-    currentUser = data.session.user;
-    if ($("project-form")) {
-      setLoggedInUI(currentUser.email || "user");
-      projects = await fetchProjects();
-      await render();
+  // When coming back to the tab/app, re-sync
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible") return;
+    try {
+      await hardRefreshData();
+    } catch (err) {
+      console.error(err);
+      showErrorBanner(err.message || "Resume refresh failed");
     }
-  } else {
-    if ($("project-form")) setLoggedOutUI();
-  }
+  });
+
+  await hardRefreshData();
 }
 
 if (document.readyState === "loading") {

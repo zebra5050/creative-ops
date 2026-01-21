@@ -5,7 +5,6 @@
   <title>Creative Ops — Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Mobile / iOS "app-like" touches -->
   <meta name="theme-color" content="#121212" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -38,7 +37,13 @@
       <span id="authStatusApp"></span>
     </header>
 
-    <!-- Mobile quick actions (CSS will show only on small screens) -->
+    <!-- If JS crashes, we'll show a message here -->
+    <div id="errorBanner" style="display:none; padding:10px 20px; margin:10px 20px; border:1px solid #ff4d4d; border-radius:10px;">
+      <strong>Something broke:</strong>
+      <div id="errorBannerMsg" style="margin-top:6px;"></div>
+    </div>
+
+    <!-- Mobile quick actions -->
     <div class="mobile-actions" aria-label="Quick actions">
       <button id="jumpToFormBtn" type="button">+ Project</button>
       <button id="jumpToSearchBtn" type="button">Search</button>
@@ -49,7 +54,6 @@
       <div id="status-graph"></div>
     </div>
 
-    <!-- SEARCH -->
     <div class="search-row">
       <input
         id="searchInput"
@@ -121,9 +125,11 @@
     </div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <!-- IMPORTANT: bump the v= whenever you deploy -->
+  <script type="module" src="app.js?v=2026-01-21-01"></script>
 </body>
 </html>
+
 
 
 
