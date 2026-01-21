@@ -4,6 +4,13 @@
   <meta charset="UTF-8" />
   <title>Creative Ops — Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Mobile / iOS "app-like" touches -->
+  <meta name="theme-color" content="#121212" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Creative Ops" />
+
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -31,6 +38,13 @@
       <span id="authStatusApp"></span>
     </header>
 
+    <!-- Mobile quick actions (CSS will show only on small screens) -->
+    <div class="mobile-actions" aria-label="Quick actions">
+      <button id="jumpToFormBtn" type="button">+ Project</button>
+      <button id="jumpToSearchBtn" type="button">Search</button>
+      <button id="collapseAllBtn" type="button">Collapse</button>
+    </div>
+
     <div id="status-graph-container">
       <div id="status-graph"></div>
     </div>
@@ -46,7 +60,7 @@
     </div>
 
     <div class="dashboard">
-      <aside class="left-panel">
+      <aside class="left-panel" id="leftPanel">
         <form id="project-form" novalidate>
           <h3>Add New Project</h3>
 
@@ -110,6 +124,7 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
 
 

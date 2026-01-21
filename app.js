@@ -9,11 +9,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const BUCKET = "project-images";
 
-console.log("app.js loaded ✅");
-
-/* =============================
-   STATE
-============================= */
 let projects = [];
 let currentUser = null;
 let searchQuery = "";
@@ -41,12 +36,6 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
-/* Tags parsing:
-   Accepts:
-   - "#art #crochet"
-   - "art, crochet"
-   - "art crochet"
-*/
 function parseTags(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return [];
@@ -180,7 +169,6 @@ async function fetchProjects() {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-
   return (data || []).map(p => ({ ...p, tags: normalizeTags(p.tags) }));
 }
 
@@ -378,7 +366,7 @@ async function render() {
   };
 
   for (const k of Object.keys(cols)) {
-    if (!cols[k]) return; // not on dashboard page
+    if (!cols[k]) return;
     cols[k].innerHTML = "";
   }
 
@@ -493,6 +481,7 @@ document.addEventListener("click", async (e) => {
     if (!p || !tag) return;
 
     p.tags = normalizeTags(p.tags).filter(t => t !== tag);
+
     try {
       await updateProject(p);
       await render();
@@ -553,7 +542,7 @@ document.addEventListener("click", async (e) => {
 });
 
 document.addEventListener("keydown", async (e) => {
-  // Add tags from per-project tag input with Enter
+  // Add tags with Enter
   const tagInput = e.target.closest(".tag-input");
   if (tagInput && e.key === "Enter") {
     e.preventDefault();
@@ -564,8 +553,7 @@ document.addEventListener("keydown", async (e) => {
     const newTags = parseTags(tagInput.value);
     if (newTags.length === 0) return;
 
-    const merged = [...new Set([...normalizeTags(p.tags), ...newTags])];
-    p.tags = merged;
+    p.tags = [...new Set([...normalizeTags(p.tags), ...newTags])];
     tagInput.value = "";
 
     try {
@@ -574,6 +562,15 @@ document.addEventListener("keydown", async (e) => {
     } catch (err) {
       console.error(err);
       alert(err.message || "Could not add tag.");
+    }
+  }
+
+  // Nice mobile UX: Enter on edit fields = blur (save) instead of newline
+  if (e.key === "Enter") {
+    const isEditField = e.target.closest(".edit-title, .edit-type, .edit-medium");
+    if (isEditField) {
+      e.preventDefault();
+      e.target.blur();
     }
   }
 });
@@ -607,7 +604,7 @@ document.addEventListener("input", async (e) => {
     return;
   }
 
-  // Inline edit fields autosave
+  // Inline edit autosave
   const titleInput = e.target.closest(".edit-title");
   const typeInput = e.target.closest(".edit-type");
   const mediumInput = e.target.closest(".edit-medium");
@@ -664,10 +661,59 @@ document.addEventListener("submit", async (e) => {
 }, true);
 
 /* =============================
+   MOBILE UX
+============================= */
+function setupMobileUX() {
+  const jumpToFormBtn = $("jumpToFormBtn");
+  const jumpToSearchBtn = $("jumpToSearchBtn");
+  const collapseAllBtn = $("collapseAllBtn");
+
+  const form = $("project-form");
+  const search = $("searchInput");
+
+  if (jumpToFormBtn && form) {
+    jumpToFormBtn.addEventListener("click", () => {
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => $("title")?.focus(), 300);
+    });
+  }
+
+  if (jumpToSearchBtn && search) {
+    jumpToSearchBtn.addEventListener("click", () => {
+      search.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => search.focus(), 250);
+    });
+  }
+
+  if (collapseAllBtn) {
+    collapseAllBtn.addEventListener("click", () => {
+      document.querySelectorAll("#app details[open]").forEach(d => d.removeAttribute("open"));
+    });
+  }
+
+  // Optional: within a project bubble, only one details open at a time
+  document.addEventListener("toggle", (e) => {
+    const details = e.target;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    if (!details.open) return;
+
+    const bubble = details.closest(".project-bubble");
+    if (!bubble) return;
+
+    bubble.querySelectorAll("details").forEach(d => {
+      if (d !== details) d.removeAttribute("open");
+    });
+  }, true);
+}
+
+/* =============================
    INIT
 ============================= */
 async function init() {
   setupImageModal();
+
+  // Mobile UX hooks
+  setupMobileUX();
 
   // Login
   const loginBtn = $("loginBtn");
@@ -715,6 +761,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
 
 
 

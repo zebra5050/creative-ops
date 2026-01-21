@@ -598,5 +598,85 @@ h2,h3{margin:10px 0;color:#f5f5f5;}
   cursor: pointer;
   font-size: 0.9em;
 }
+/* ===== Mobile finishing touches ===== */
+
+/* Make the top bar sticky on small screens */
+@media (max-width: 768px) {
+  .top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+}
+
+/* Mobile quick action row (hidden on desktop) */
+.mobile-actions {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+    position: sticky;
+    top: 52px; /* tweak to match your header height */
+    z-index: 49;
+    background: rgba(18, 18, 18, 0.92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid #333;
+  }
+
+  .mobile-actions button {
+    width: 100%;
+    padding: 10px;
+    border-radius: 12px;
+  }
+
+  /* iOS Safari: prevent zoom by ensuring inputs are >= 16px */
+  #project-form input,
+  #project-form select,
+  #project-form textarea,
+  #searchInput,
+  #auth input {
+    font-size: 16px;
+  }
+}
+
+/* Reduce horizontal squish and allow smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+.projects-columns {
+  /* On mobile we’ll stack columns; you probably already do this, but this helps */
+}
+
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .projects-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .column {
+    min-height: unset;
+  }
+}
+
+/* Make the editable row not crush on mobile */
+@media (max-width: 768px) {
+  .edit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
 
 
