@@ -1,3 +1,8 @@
+console.log("✅ app-v2.js loaded", new Date().toISOString());
+
+const boot = document.getElementById("bootStatus");
+if (boot) boot.textContent = "✅ JS loaded";
+
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
 /* =============================
