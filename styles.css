@@ -438,5 +438,82 @@ h2,h3{margin:10px 0;color:#f5f5f5;}
   border-radius: 10px;
   cursor: pointer;
 }
+/* ---------- Auth page polish ---------- */
+.auth-shell {
+  display: flex;
+  justify-content: center;
+  padding: 28px 16px;
+}
+
+.auth-card {
+  width: min(520px, 100%);
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+}
+
+.auth-label {
+  display: block;
+  margin-top: 10px;
+  opacity: 0.85;
+  font-size: 0.9rem;
+}
+
+.auth-btn {
+  margin-top: 14px;
+  width: 100%;
+  border-radius: 14px;
+  padding: 12px 12px;
+  font-weight: 700;
+  background: #007acc;
+  border: none;
+  cursor: pointer;
+}
+.auth-btn:hover { background: #005fa3; }
+.auth-btn:disabled { opacity: 0.6; cursor: default; }
+
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.link-btn {
+  background: transparent;
+  border: none;
+  color: #7dd3fc;
+  cursor: pointer;
+  padding: 6px 0;
+  text-align: left;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.auth-foot {
+  margin-top: 12px;
+  opacity: 0.85;
+}
+
+/* ---------- Notice card ---------- */
+.notice-card {
+  border-radius: 14px;
+  padding: 12px 12px;
+  margin: 10px 0 6px 0;
+  border: 1px solid #333;
+  background: #141414;
+}
+
+.notice-title {
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.notice-body p { margin: 6px 0; }
+
+.notice-success { border-color: rgba(76,175,80,0.45); }
+.notice-error { border-color: rgba(244,67,54,0.45); }
+.notice-info { border-color: rgba(33,150,243,0.45); }
 
 

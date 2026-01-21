@@ -22,9 +22,7 @@ const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 /* =============================
    HELPERS
 ============================= */
-function $(id) {
-  return document.getElementById(id);
-}
+function $(id) { return document.getElementById(id); }
 
 function escapeHtml(str) {
   return String(str ?? "")
@@ -42,8 +40,20 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
+function showCard(el, type, title, bodyHtml) {
+  if (!el) return;
+  el.style.display = "block";
+  el.classList.remove("notice-success", "notice-error", "notice-info");
+  el.classList.add(type);
+
+  el.innerHTML = `
+    <div class="notice-title">${escapeHtml(title)}</div>
+    <div class="notice-body">${bodyHtml || ""}</div>
+  `;
+}
+
 /* =============================
-   MODAL
+   IMAGE MODAL
 ============================= */
 function setupImageModal() {
   const modal = $("imgModal");
@@ -60,13 +70,8 @@ function setupImageModal() {
   }
 
   close.addEventListener("click", hide);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) hide();
-  });
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hide();
-  });
+  modal.addEventListener("click", (e) => { if (e.target === modal) hide(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
 
   window.__openImageModal = (url, caption = "") => {
     img.src = url;
@@ -122,9 +127,7 @@ function updateStatusGraph() {
 
   const counts = {};
   STATUSES.forEach(s => (counts[s] = 0));
-  projects.forEach(p => {
-    if (counts[p.status] !== undefined) counts[p.status]++;
-  });
+  projects.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
 
   const total = projects.length;
   if (total === 0) return;
@@ -132,6 +135,7 @@ function updateStatusGraph() {
   for (const status of STATUSES) {
     const c = counts[status];
     if (c === 0) continue;
+
     const seg = document.createElement("div");
     seg.style.width = `${(c / total) * 100}%`;
     seg.style.height = "100%";
@@ -182,7 +186,6 @@ async function deleteProject(projectId) {
 
 /* =============================
    DB: IMAGES
-   Table: project_images(id, user_id, project_id, path, caption, created_at)
 ============================= */
 async function listProjectImages(projectId) {
   const { data, error } = await supabase
@@ -224,10 +227,7 @@ async function uploadProjectImage(projectId, file, caption) {
 
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, {
-      upsert: false,
-      contentType: file.type || "image/jpeg"
-    });
+    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
 
   if (upErr) throw upErr;
 
@@ -319,7 +319,7 @@ async function render() {
     "Completed": $("col-completed")
   };
 
-  // If we’re on register.html, these columns don’t exist — just skip render.
+  // If we’re on register.html, these columns don’t exist.
   for (const k of Object.keys(cols)) {
     if (!cols[k]) return;
     cols[k].innerHTML = "";
@@ -367,7 +367,6 @@ async function render() {
 
     cols[status].appendChild(bubble);
 
-    // Load images into this bubble
     const grid = bubble.querySelector(".image-grid");
     await refreshImageGrid(p.id, grid);
   }
@@ -524,54 +523,118 @@ async function init() {
 
   setupImageModal();
 
-  // ----- LOGIN PAGE (index.html) -----
+  /* -------- Login page (index.html) -------- */
   const loginBtn = $("loginBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", async () => {
       const email = ($("email")?.value || "").trim();
       const password = $("password")?.value || "";
-
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
     });
   }
 
-  // ----- REGISTER PAGE (register.html) -----
+  /* -------- Register page (register.html) -------- */
   const registerPageBtn = $("registerPageBtn");
+  const resendConfirmBtn = $("resendConfirmBtn");
+  const forgotPasswordBtn = $("forgotPasswordBtn");
+  const registerCard = $("registerCard");
+
   if (registerPageBtn) {
     registerPageBtn.addEventListener("click", async () => {
       const email = ($("regEmail")?.value || "").trim();
       const password = $("regPassword")?.value || "";
-      const msg = $("registerMsg");
 
       if (!email || !password) {
-        if (msg) msg.textContent = "Please enter email and password.";
+        showCard(registerCard, "notice-error", "Missing info", "Please enter an email and password.");
         return;
       }
 
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({ email, password });
 
       if (error) {
-        if (msg) msg.textContent = error.message;
+        showCard(registerCard, "notice-error", "Couldn’t create account", escapeHtml(error.message));
         return;
       }
 
-      if (msg) {
-        msg.innerHTML = `
-          ✅ Account created!<br/>
-          Please check <strong>${escapeHtml(email)}</strong> to confirm your email.<br/>
-          After confirming, go back to <a href="index.html">Login</a>.
-        `;
-      }
+      // If email confirmations are enabled, user may not have a session yet.
+      showCard(
+        registerCard,
+        "notice-success",
+        "Account created!",
+        `
+          <p>✅ We sent a confirmation email to <strong>${escapeHtml(email)}</strong>.</p>
+          <p>Please click the link in that email to verify your account, then return to <a href="index.html">Login</a>.</p>
+        `
+      );
+
+      // Nice UX: disable create button to prevent spam clicks
+      registerPageBtn.disabled = true;
+      registerPageBtn.textContent = "Check your email ✉️";
     });
   }
 
-  // Auth state listener
+  if (resendConfirmBtn) {
+    resendConfirmBtn.addEventListener("click", async () => {
+      const email = ($("regEmail")?.value || "").trim();
+
+      if (!email) {
+        showCard(registerCard, "notice-error", "Enter your email", "Type your email above so we know where to resend.");
+        return;
+      }
+
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email
+      });
+
+      if (error) {
+        showCard(registerCard, "notice-error", "Couldn’t resend", escapeHtml(error.message));
+        return;
+      }
+
+      showCard(
+        registerCard,
+        "notice-info",
+        "Confirmation resent",
+        `<p>📩 We resent the confirmation email to <strong>${escapeHtml(email)}</strong>.</p>`
+      );
+    });
+  }
+
+  if (forgotPasswordBtn) {
+    forgotPasswordBtn.addEventListener("click", async () => {
+      const email = ($("regEmail")?.value || "").trim();
+
+      if (!email) {
+        showCard(registerCard, "notice-error", "Enter your email", "Type your email above and we’ll send a reset link.");
+        return;
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // Change if you later add a dedicated reset page:
+        redirectTo: `${window.location.origin}/index.html`
+      });
+
+      if (error) {
+        showCard(registerCard, "notice-error", "Couldn’t send reset link", escapeHtml(error.message));
+        return;
+      }
+
+      showCard(
+        registerCard,
+        "notice-info",
+        "Password reset sent",
+        `<p>🔐 We sent a password reset email to <strong>${escapeHtml(email)}</strong>.</p>`
+      );
+    });
+  }
+
+  /* -------- Auth state (dashboard only on index.html) -------- */
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
 
-      // If we’re on register.html, we don’t show the app — just message and let them go login.
       if ($("project-form")) {
         setLoggedInUI(session.user.email || "user");
         projects = await fetchProjects();
@@ -584,12 +647,10 @@ async function init() {
     }
   });
 
-  // Restore session
+  /* -------- Restore session -------- */
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
-
-    // Only show dashboard if we're on index.html (project-form exists)
     if ($("project-form")) {
       setLoggedInUI(currentUser.email || "user");
       projects = await fetchProjects();
@@ -600,7 +661,7 @@ async function init() {
   }
 }
 
-// Run init no matter when script loads
+/* Run init no matter when script loads */
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init, { once: true });
 } else {

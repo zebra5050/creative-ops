@@ -8,19 +8,36 @@
 </head>
 <body>
 
-  <section id="auth">
-    <h2>Create Account</h2>
+  <section id="auth" class="auth-shell">
+    <div class="auth-card">
+      <h2>Create Account</h2>
 
-    <input id="regEmail" type="email" placeholder="Email" autocomplete="email" />
-    <input id="regPassword" type="password" placeholder="Password" autocomplete="new-password" />
+      <div id="registerCard" class="notice-card" style="display:none;"></div>
 
-    <button id="registerPageBtn" type="button">Create Account</button>
+      <label class="auth-label" for="regEmail">Email</label>
+      <input id="regEmail" type="email" placeholder="you@email.com" autocomplete="email" />
 
-    <div id="registerMsg" style="margin-top:12px; opacity:.9;"></div>
+      <label class="auth-label" for="regPassword">Password</label>
+      <input id="regPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
 
-    <p style="margin-top:12px; opacity:.85;">
-      Already have an account? <a href="index.html">Back to login</a>
-    </p>
+      <button id="registerPageBtn" class="auth-btn" type="button">
+        Create Account
+      </button>
+
+      <div class="auth-links">
+        <button id="resendConfirmBtn" class="link-btn" type="button">
+          Resend confirmation email
+        </button>
+
+        <button id="forgotPasswordBtn" class="link-btn" type="button">
+          Forgot password?
+        </button>
+      </div>
+
+      <p class="auth-foot">
+        Already have an account? <a href="index.html">Back to login</a>
+      </p>
+    </div>
   </section>
 
   <script type="module" src="app.js"></script>
