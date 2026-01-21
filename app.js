@@ -1,8 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-/* =============================
-   SUPABASE CONFIG
-============================= */
 const SUPABASE_URL = "https://pavagjywyubnbmzejojp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XQouTjRTbiSuLsog-ZghGw_x4f9APJy";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -11,18 +8,13 @@ const BUCKET = "project-images";
 
 console.log("app.js loaded ✅");
 
-/* =============================
-   STATE
-============================= */
 let projects = [];
 let currentUser = null;
 let searchQuery = "";
 
 const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 
-/* =============================
-   HELPERS
-============================= */
+/* ---------- helpers ---------- */
 function $(id) { return document.getElementById(id); }
 
 function escapeHtml(str) {
@@ -41,12 +33,6 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
-/* Tags parsing:
-   Accepts:
-   - "#art #crochet"
-   - "art, crochet"
-   - "art crochet"
-*/
 function parseTags(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return [];
@@ -57,30 +43,18 @@ function parseTags(raw) {
     .filter(Boolean)
     .map(t => t.startsWith("#") ? t.slice(1) : t)
     .map(t => t.toLowerCase())
-    .filter(t => t.length > 0);
+    .filter(Boolean);
 
-  // unique
   return [...new Set(parts)];
 }
 
-/* =============================
-   NOTICE CARD (register page)
-============================= */
-function showCard(el, type, title, bodyHtml) {
-  if (!el) return;
-  el.style.display = "block";
-  el.classList.remove("notice-success", "notice-error", "notice-info");
-  el.classList.add(type);
-
-  el.innerHTML = `
-    <div class="notice-title">${escapeHtml(title)}</div>
-    <div class="notice-body">${bodyHtml || ""}</div>
-  `;
+function normalizeTags(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") return parseTags(value);
+  return [];
 }
 
-/* =============================
-   IMAGE MODAL
-============================= */
+/* ---------- modal ---------- */
 function setupImageModal() {
   const modal = $("imgModal");
   const img = $("imgModalImage");
@@ -107,15 +81,12 @@ function setupImageModal() {
   };
 }
 
-/* =============================
-   UI
-============================= */
+/* ---------- ui ---------- */
 function setLoggedInUI(email) {
   const auth = $("auth");
   const app = $("app");
   if (auth) auth.style.display = "none";
   if (app) app.style.display = "block";
-
   const statusApp = $("authStatusApp");
   if (statusApp) statusApp.textContent = `Logged in as ${email}`;
 }
@@ -125,17 +96,13 @@ function setLoggedOutUI() {
   const app = $("app");
   if (auth) auth.style.display = "block";
   if (app) app.style.display = "none";
-
   const statusAuth = $("authStatusAuth");
   if (statusAuth) statusAuth.textContent = "Not logged in";
-
   const statusApp = $("authStatusApp");
   if (statusApp) statusApp.textContent = "";
 }
 
-/* =============================
-   STATUS BAR
-============================= */
+/* ---------- status graph ---------- */
 function updateStatusGraph() {
   const graph = $("status-graph");
   if (!graph) return;
@@ -170,9 +137,7 @@ function updateStatusGraph() {
   }
 }
 
-/* =============================
-   DB: PROJECTS
-============================= */
+/* ---------- db projects ---------- */
 async function fetchProjects() {
   const { data, error } = await supabase
     .from("projects")
@@ -181,7 +146,9 @@ async function fetchProjects() {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+
+  // normalize tags so render always shows them
+  return (data || []).map(p => ({ ...p, tags: normalizeTags(p.tags) }));
 }
 
 async function insertProject(project) {
@@ -213,9 +180,7 @@ async function deleteProject(projectId) {
   if (error) throw error;
 }
 
-/* =============================
-   DB: IMAGES
-============================= */
+/* ---------- db images ---------- */
 async function listProjectImages(projectId) {
   const { data, error } = await supabase
     .from("project_images")
@@ -283,12 +248,12 @@ async function deleteProjectImage(imageId, path) {
   if (dbErr) throw dbErr;
 }
 
-/* =============================
-   SEARCH FILTER
-============================= */
+/* ---------- search ---------- */
 function getFilteredProjects() {
   const q = searchQuery.trim().toLowerCase();
   if (!q) return projects;
+
+  const needle = q.startsWith("#") ? q.slice(1) : q;
 
   return projects.filter(p => {
     const title = String(p.title || "").toLowerCase();
@@ -297,24 +262,21 @@ function getFilteredProjects() {
     const tags = Array.isArray(p.tags) ? p.tags.join(" ").toLowerCase() : "";
 
     return (
-      title.includes(q) ||
-      medium.includes(q) ||
-      type.includes(q) ||
-      tags.includes(q)
+      title.includes(needle) ||
+      medium.includes(needle) ||
+      type.includes(needle) ||
+      tags.includes(needle)
     );
   });
 }
 
-/* =============================
-   RENDER
-============================= */
+/* ---------- render ---------- */
 async function refreshImageGrid(projectId, gridEl) {
   if (!gridEl) return;
   gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
 
   try {
     const images = await listProjectImages(projectId);
-
     if (images.length === 0) {
       gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
       return;
@@ -325,7 +287,6 @@ async function refreshImageGrid(projectId, gridEl) {
     for (const img of images) {
       const card = document.createElement("div");
       card.className = "image-card";
-
       const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
 
       card.innerHTML = `
@@ -371,7 +332,7 @@ async function render() {
   };
 
   for (const k of Object.keys(cols)) {
-    if (!cols[k]) return; // register page
+    if (!cols[k]) return;
     cols[k].innerHTML = "";
   }
 
@@ -379,10 +340,12 @@ async function render() {
 
   for (const p of list) {
     const status = STATUSES.includes(p.status) ? p.status : "Idea";
+    const tags = normalizeTags(p.tags);
 
-    const tags = Array.isArray(p.tags) ? p.tags : [];
     const tagHtml = tags.length
-      ? `<div class="tag-row">${tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join("")}</div>`
+      ? `<div class="tag-row">
+          ${tags.map(t => `<span class="tag-chip" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`).join("")}
+         </div>`
       : "";
 
     const bubble = document.createElement("div");
@@ -432,16 +395,29 @@ async function render() {
   updateStatusGraph();
 }
 
-/* =============================
-   EVENTS (delegation)
-============================= */
+/* ---------- events ---------- */
 document.addEventListener("click", async (e) => {
+  // logout
   if (e.target.closest("#logoutBtnTop")) {
     e.preventDefault();
     await supabase.auth.signOut();
     return;
   }
 
+  // clicking a tag chip => search it
+  const chip = e.target.closest(".tag-chip");
+  if (chip) {
+    const t = chip.getAttribute("data-tag");
+    const search = $("searchInput");
+    if (search) {
+      search.value = `#${t}`;
+      searchQuery = `#${t}`;
+      await render();
+    }
+    return;
+  }
+
+  // delete project
   const del = e.target.closest(".delete-btn");
   if (del) {
     const bubble = e.target.closest(".project-bubble");
@@ -459,6 +435,7 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
+  // upload image
   const uploadBtn = e.target.closest(".image-upload-btn");
   if (uploadBtn) {
     const bubble = e.target.closest(".project-bubble");
@@ -527,7 +504,6 @@ document.addEventListener("input", async (e) => {
     return;
   }
 
-  // Search input
   if (e.target?.id === "searchInput") {
     searchQuery = e.target.value || "";
     await render();
@@ -567,22 +543,18 @@ document.addEventListener("submit", async (e) => {
   }
 }, true);
 
-/* =============================
-   INIT
-============================= */
+/* ---------- init ---------- */
 async function init() {
   setupImageModal();
 
-  // Search input hookup (only exists on index.html)
-  const searchInput = $("searchInput");
-  if (searchInput) {
-    searchInput.addEventListener("input", async () => {
-      searchQuery = searchInput.value || "";
+  const search = $("searchInput");
+  if (search) {
+    search.addEventListener("input", async () => {
+      searchQuery = search.value || "";
       await render();
     });
   }
 
-  // Login page
   const loginBtn = $("loginBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", async () => {
@@ -593,77 +565,6 @@ async function init() {
     });
   }
 
-  // Register page features (if you still have them)
-  const registerPageBtn = $("registerPageBtn");
-  const resendConfirmBtn = $("resendConfirmBtn");
-  const forgotPasswordBtn = $("forgotPasswordBtn");
-  const registerCard = $("registerCard");
-
-  if (registerPageBtn) {
-    registerPageBtn.addEventListener("click", async () => {
-      const email = ($("regEmail")?.value || "").trim();
-      const password = $("regPassword")?.value || "";
-
-      if (!email || !password) {
-        showCard(registerCard, "notice-error", "Missing info", "Please enter an email and password.");
-        return;
-      }
-
-      const { error } = await supabase.auth.signUp({ email, password });
-
-      if (error) {
-        showCard(registerCard, "notice-error", "Couldn’t create account", escapeHtml(error.message));
-        return;
-      }
-
-      showCard(
-        registerCard,
-        "notice-success",
-        "Account created!",
-        `<p>✅ Check <strong>${escapeHtml(email)}</strong> for a confirmation email.</p>
-         <p>After verifying, return to <a href="index.html">Login</a>.</p>`
-      );
-
-      registerPageBtn.disabled = true;
-      registerPageBtn.textContent = "Check your email ✉️";
-    });
-  }
-
-  if (resendConfirmBtn) {
-    resendConfirmBtn.addEventListener("click", async () => {
-      const email = ($("regEmail")?.value || "").trim();
-      if (!email) {
-        showCard(registerCard, "notice-error", "Enter your email", "Type your email above so we can resend.");
-        return;
-      }
-      const { error } = await supabase.auth.resend({ type: "signup", email });
-      if (error) {
-        showCard(registerCard, "notice-error", "Couldn’t resend", escapeHtml(error.message));
-        return;
-      }
-      showCard(registerCard, "notice-info", "Confirmation resent", `<p>📩 Sent to <strong>${escapeHtml(email)}</strong>.</p>`);
-    });
-  }
-
-  if (forgotPasswordBtn) {
-    forgotPasswordBtn.addEventListener("click", async () => {
-      const email = ($("regEmail")?.value || "").trim();
-      if (!email) {
-        showCard(registerCard, "notice-error", "Enter your email", "Type your email above and we’ll send a reset link.");
-        return;
-      }
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/index.html`
-      });
-      if (error) {
-        showCard(registerCard, "notice-error", "Couldn’t send reset link", escapeHtml(error.message));
-        return;
-      }
-      showCard(registerCard, "notice-info", "Password reset sent", `<p>🔐 Sent to <strong>${escapeHtml(email)}</strong>.</p>`);
-    });
-  }
-
-  // Auth state
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
@@ -679,7 +580,6 @@ async function init() {
     }
   });
 
-  // Restore session
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
@@ -698,6 +598,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
 
 
 

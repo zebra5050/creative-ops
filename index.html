@@ -35,14 +35,27 @@
       <div id="status-graph"></div>
     </div>
 
+    <!-- ✅ SEARCH BAR -->
+    <div class="search-row">
+      <input
+        id="searchInput"
+        type="text"
+        placeholder="Search title, medium, type, or tags (ex: crochet, #webdev)..."
+        autocomplete="off"
+      />
+    </div>
+
     <div class="dashboard">
       <aside class="left-panel">
         <form id="project-form" novalidate>
           <h3>Add New Project</h3>
 
           <input id="title" type="text" placeholder="Project title" />
-          <input id="type" type="text" placeholder="Type / Tag (optional)" />
+          <input id="type" type="text" placeholder="Type (optional)" />
           <input id="medium" type="text" placeholder="Medium / Tools" />
+
+          <!-- ✅ TAGS INPUT -->
+          <input id="tags" type="text" placeholder="Tags (ex: #art #crochet #webdev)" />
 
           <select id="status">
             <option>Idea</option>
@@ -99,6 +112,7 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
 
 
