@@ -25,12 +25,25 @@ let searchQuery = "";
 
 const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 
+// Prevent overlapping renders / stale renders
+let renderInFlight = false;
+let renderQueued = false;
+let renderToken = 0; // increments whenever we start a new full refresh/render cycle
+
 /* =============================
    HELPERS
 ============================= */
 function $(id) { return document.getElementById(id); }
 
+function isAbortError(err) {
+  const msg = String(err?.message || err || "");
+  return err?.name === "AbortError" || msg.includes("AbortError") || msg.includes("signal is aborted");
+}
+
 function showErrorBanner(msg) {
+  // Don’t treat AbortError as a “something broke” moment
+  if (isAbortError(msg)) return;
+
   const wrap = $("errorBanner");
   const text = $("errorBannerMsg");
   if (!wrap || !text) return;
@@ -44,13 +57,17 @@ function clearErrorBanner() {
 }
 
 window.addEventListener("error", (e) => {
-  console.error("Window error:", e.error || e.message);
-  showErrorBanner(String(e.error?.message || e.message || e));
+  const err = e.error || e.message;
+  if (isAbortError(err)) return;
+  console.error("Window error:", err);
+  showErrorBanner(String(err));
 });
 
 window.addEventListener("unhandledrejection", (e) => {
-  console.error("Unhandled rejection:", e.reason);
-  showErrorBanner(String(e.reason?.message || e.reason || "Unhandled promise rejection"));
+  const err = e.reason;
+  if (isAbortError(err)) return;
+  console.error("Unhandled rejection:", err);
+  showErrorBanner(String(err?.message || err || "Unhandled promise rejection"));
 });
 
 function escapeHtml(str) {
@@ -326,52 +343,70 @@ function getFilteredProjects() {
 }
 
 /* =============================
-   RENDER (SAFE)
+   RENDER (LOCKED + TOKENED)
 ============================= */
-async function refreshImageGrid(projectId, gridEl) {
+async function refreshImageGrid(projectId, gridEl, token) {
   if (!gridEl) return;
+
+  // If a new render cycle started, stop.
+  if (token !== renderToken) return;
+
   gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
 
-  const images = await listProjectImages(projectId);
+  try {
+    const images = await listProjectImages(projectId);
 
-  if (images.length === 0) {
-    gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
-    return;
-  }
+    if (token !== renderToken) return;
 
-  gridEl.innerHTML = "";
+    if (images.length === 0) {
+      gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
+      return;
+    }
 
-  for (const img of images) {
-    const card = document.createElement("div");
-    card.className = "image-card";
-    const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
+    gridEl.innerHTML = "";
 
-    card.innerHTML = `
-      <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
-      <div class="image-meta">
-        <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
-        <div class="image-date">${date}</div>
-      </div>
-      <button class="image-delete" type="button" title="Delete image">✕</button>
-    `;
+    for (const img of images) {
+      if (token !== renderToken) return;
 
-    card.querySelector(".image-thumb").addEventListener("click", (e) => {
-      e.stopPropagation();
-      window.__openImageModal?.(img.url, img.caption || "");
-    });
+      const card = document.createElement("div");
+      card.className = "image-card";
+      const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
 
-    card.querySelector(".image-delete").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      try {
-        await deleteProjectImage(img.id, img.path);
-        await safeRender(); // refresh UI safely
-      } catch (err) {
-        console.error(err);
-        showErrorBanner(err.message || "Delete image failed");
-      }
-    });
+      card.innerHTML = `
+        <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
+        <div class="image-meta">
+          <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
+          <div class="image-date">${date}</div>
+        </div>
+        <button class="image-delete" type="button" title="Delete image">✕</button>
+      `;
 
-    gridEl.appendChild(card);
+      card.querySelector(".image-thumb").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.__openImageModal?.(img.url, img.caption || "");
+      });
+
+      card.querySelector(".image-delete").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await deleteProjectImage(img.id, img.path);
+          await hardRefreshData(); // consistent source of truth
+        } catch (err) {
+          console.error(err);
+          if (!isAbortError(err)) showErrorBanner(err.message || "Delete image failed");
+        }
+      });
+
+      gridEl.appendChild(card);
+    }
+  } catch (err) {
+    console.error(err);
+    if (isAbortError(err)) {
+      // Abort is normal on mobile suspend/resume; don’t show scary banner.
+      gridEl.innerHTML = `<div class="image-empty">Images loading paused.</div>`;
+      return;
+    }
+    gridEl.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
   }
 }
 
@@ -388,15 +423,17 @@ async function render() {
     if (!cols[k]) return;
   }
 
-  // Build in a temp container FIRST so a crash doesn't wipe the UI
+  const token = renderToken; // capture token for this run
+
+  // Build in temp containers so we don't wipe UI if something fails mid-way
   const temp = {};
-  for (const status of STATUSES) {
-    temp[status] = document.createElement("div");
-  }
+  for (const s of STATUSES) temp[s] = document.createElement("div");
 
   const list = getFilteredProjects();
 
   for (const p of list) {
+    if (token !== renderToken) return;
+
     const status = STATUSES.includes(p.status) ? p.status : "Idea";
     const tags = normalizeTags(p.tags);
 
@@ -453,44 +490,56 @@ async function render() {
     temp[status].appendChild(bubble);
   }
 
-  // Swap in ONLY after successful build
-  for (const status of STATUSES) {
-    const colId =
-      status === "In Progress" ? "col-inprogress" :
-      status === "Idea" ? "col-idea" :
-      status === "Planning" ? "col-planning" :
-      status === "Paused" ? "col-paused" :
-      "col-completed";
+  // Commit swap
+  const colMap = {
+    "Idea": "col-idea",
+    "Planning": "col-planning",
+    "In Progress": "col-inprogress",
+    "Paused": "col-paused",
+    "Completed": "col-completed"
+  };
 
-    const realCol = $(colId);
+  for (const s of STATUSES) {
+    if (token !== renderToken) return;
+    const realCol = $(colMap[s]);
     realCol.innerHTML = "";
-    while (temp[status].firstChild) realCol.appendChild(temp[status].firstChild);
-  }
-
-  // Now load images (if this fails, UI still exists)
-  const bubbles = document.querySelectorAll(".project-bubble");
-  for (const bubble of bubbles) {
-    const projectId = Number(bubble.dataset.projectId);
-    const grid = bubble.querySelector(".image-grid");
-    try {
-      await refreshImageGrid(projectId, grid);
-    } catch (err) {
-      console.error(err);
-      // keep going; don't kill render
-      if (grid) grid.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
-    }
+    while (temp[s].firstChild) realCol.appendChild(temp[s].firstChild);
   }
 
   updateStatusGraph();
+
+  // Load images after DOM exists (and tolerate aborts)
+  const bubbles = document.querySelectorAll(".project-bubble");
+  for (const bubble of bubbles) {
+    if (token !== renderToken) return;
+    const projectId = Number(bubble.dataset.projectId);
+    const grid = bubble.querySelector(".image-grid");
+    await refreshImageGrid(projectId, grid, token);
+  }
 }
 
+// Locked render that queues if multiple updates happen quickly
 async function safeRender() {
+  if (renderInFlight) {
+    renderQueued = true;
+    return;
+  }
+
+  renderInFlight = true;
   try {
     clearErrorBanner();
     await render();
   } catch (err) {
     console.error("Render failed:", err);
-    showErrorBanner(err.message || "Render crashed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Render crashed");
+  } finally {
+    renderInFlight = false;
+    if (renderQueued) {
+      renderQueued = false;
+      // New render cycle token so stale async work stops
+      renderToken++;
+      await safeRender();
+    }
   }
 }
 
@@ -509,7 +558,7 @@ const saveProjectDebounced = debounce(async (project) => {
     await updateProject(project);
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Save failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Save failed");
   }
 }, 600);
 
@@ -528,14 +577,15 @@ document.addEventListener("click", async (e) => {
     if (removeBtn) {
       e.preventDefault();
       e.stopPropagation();
+
       const tagSpan = removeBtn.closest(".tag-chip");
       const tag = tagSpan?.getAttribute("data-tag");
       const p = findProjectFromEventTarget(removeBtn);
       if (!p || !tag) return;
+
       p.tags = normalizeTags(p.tags).filter(t => t !== tag);
       await updateProject(p);
-      projects = await fetchProjects();
-      await safeRender();
+      await hardRefreshData();
       return;
     }
 
@@ -544,8 +594,7 @@ document.addEventListener("click", async (e) => {
       const p = findProjectFromEventTarget(del);
       if (!p) return;
       await deleteProject(Number(p.id));
-      projects = await fetchProjects();
-      await safeRender();
+      await hardRefreshData();
       return;
     }
 
@@ -568,16 +617,15 @@ document.addEventListener("click", async (e) => {
       if (fileInput) fileInput.value = "";
       if (capInput) capInput.value = "";
 
-      projects = await fetchProjects();
-      await safeRender();
-
       uploadBtn.disabled = false;
       uploadBtn.textContent = "Upload";
+
+      await hardRefreshData();
       return;
     }
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Click handler failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Click handler failed");
   }
 });
 
@@ -596,8 +644,7 @@ document.addEventListener("keydown", async (e) => {
       tagInput.value = "";
 
       await updateProject(p);
-      projects = await fetchProjects();
-      await safeRender();
+      await hardRefreshData();
       return;
     }
 
@@ -610,7 +657,7 @@ document.addEventListener("keydown", async (e) => {
     }
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Key handler failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Key handler failed");
   }
 });
 
@@ -624,12 +671,10 @@ document.addEventListener("change", async (e) => {
 
     p.status = sel.value.trim();
     await updateProject(p);
-
-    projects = await fetchProjects();
-    await safeRender();
+    await hardRefreshData();
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Status update failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Status update failed");
   }
 });
 
@@ -661,11 +706,12 @@ document.addEventListener("input", async (e) => {
 
     if (e.target?.id === "searchInput") {
       searchQuery = e.target.value || "";
+      renderToken++;
       await safeRender();
     }
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Input handler failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Input handler failed");
   }
 }, { passive: true });
 
@@ -693,14 +739,11 @@ document.addEventListener("submit", async (e) => {
     if (!project.title) return alert("Project title is required.");
 
     await insertProject(project);
-
-    projects = await fetchProjects();
-    await safeRender();
-
+    await hardRefreshData();
     form.reset();
   } catch (err) {
     console.error(err);
-    showErrorBanner(err.message || "Add project failed");
+    if (!isAbortError(err)) showErrorBanner(err.message || "Add project failed");
     alert(err.message || "Failed to add project.");
   }
 }, true);
@@ -749,26 +792,38 @@ function setupMobileUX() {
 }
 
 /* =============================
-   INIT
+   DATA REFRESH
 ============================= */
 async function hardRefreshData() {
   if (!$("project-form")) return;
-  const { data } = await supabase.auth.getSession();
-  const user = data?.session?.user;
 
-  if (!user) {
-    currentUser = null;
-    projects = [];
-    setLoggedOutUI();
-    return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const user = data?.session?.user;
+
+    if (!user) {
+      currentUser = null;
+      projects = [];
+      setLoggedOutUI();
+      return;
+    }
+
+    currentUser = user;
+    setLoggedInUI(user.email || "user");
+
+    projects = await fetchProjects();
+
+    renderToken++;
+    await safeRender();
+  } catch (err) {
+    console.error(err);
+    if (!isAbortError(err)) showErrorBanner(err.message || "Refresh failed");
   }
-
-  currentUser = user;
-  setLoggedInUI(user.email || "user");
-  projects = await fetchProjects();
-  await safeRender();
 }
 
+/* =============================
+   INIT
+============================= */
 async function init() {
   setupImageModal();
   setupMobileUX();
@@ -783,41 +838,29 @@ async function init() {
         if (error) throw error;
       } catch (err) {
         console.error(err);
-        showErrorBanner(err.message || "Login failed");
+        if (!isAbortError(err)) showErrorBanner(err.message || "Login failed");
         alert(err.message || "Login failed");
       }
     });
   }
 
   supabase.auth.onAuthStateChange(async (_event, session) => {
-    try {
-      if (session?.user) {
-        currentUser = session.user;
-        if ($("project-form")) {
-          setLoggedInUI(session.user.email || "user");
-          projects = await fetchProjects();
-          await safeRender();
-        }
-      } else {
-        currentUser = null;
-        projects = [];
-        if ($("project-form")) setLoggedOutUI();
+    if (session?.user) {
+      currentUser = session.user;
+      if ($("project-form")) {
+        setLoggedInUI(session.user.email || "user");
+        await hardRefreshData();
       }
-    } catch (err) {
-      console.error(err);
-      showErrorBanner(err.message || "Auth state handler failed");
+    } else {
+      currentUser = null;
+      projects = [];
+      if ($("project-form")) setLoggedOutUI();
     }
   });
 
-  // When coming back to the tab/app, re-sync
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState !== "visible") return;
-    try {
-      await hardRefreshData();
-    } catch (err) {
-      console.error(err);
-      showErrorBanner(err.message || "Resume refresh failed");
-    }
+    await hardRefreshData();
   });
 
   await hardRefreshData();
@@ -828,6 +871,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
 
 
 
