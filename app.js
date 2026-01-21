@@ -6,6 +6,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 console.log("app.js loaded ✅");
 
+const BUCKET = "project-images";
+
 let projects = [];
 let currentUser = null;
 
@@ -14,9 +16,7 @@ const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 /* -----------------------------
    Helpers
 ----------------------------- */
-function $(id) {
-  return document.getElementById(id);
-}
+function $(id) { return document.getElementById(id); }
 
 function escapeHtml(str) {
   return String(str)
@@ -25,32 +25,70 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;");
 }
 
+function safeExt(filename) {
+  const m = filename.toLowerCase().match(/\.(png|jpg|jpeg|webp|gif)$/);
+  return m ? m[0] : ".jpg";
+}
+
+function imagePath(projectId, filename) {
+  return `${currentUser.id}/${projectId}/${filename}`;
+}
+
+/* -----------------------------
+   Modal
+----------------------------- */
+function setupImageModal() {
+  const modal = $("imgModal");
+  const img = $("imgModalImage");
+  const cap = $("imgModalCaption");
+  const close = $("imgModalClose");
+
+  if (!modal || !img || !cap || !close) return;
+
+  function hide() {
+    modal.classList.remove("open");
+    modal.setAttribute("aria-hidden", "true");
+    img.src = "";
+    cap.textContent = "";
+  }
+
+  close.addEventListener("click", hide);
+  modal.addEventListener("click", (e) => {
+    // click outside inner closes
+    if (e.target === modal) hide();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hide();
+  });
+
+  window.__openImageModal = (url, caption = "") => {
+    img.src = url;
+    cap.textContent = caption || "";
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+  };
+}
+
 /* -----------------------------
    UI
 ----------------------------- */
 function setLoggedInUI(email) {
-  const auth = $("auth");
-  const app = $("app");
-  if (auth) auth.style.display = "none";
-  if (app) app.style.display = "block";
-
-  const statusApp = $("authStatusApp");
-  if (statusApp) statusApp.textContent = `Logged in as ${email}`;
+  $("auth").style.display = "none";
+  $("app").style.display = "block";
+  $("authStatusApp").textContent = `Logged in as ${email}`;
 }
 
 function setLoggedOutUI() {
-  const auth = $("auth");
-  const app = $("app");
-  if (auth) auth.style.display = "block";
-  if (app) app.style.display = "none";
-
-  const statusAuth = $("authStatusAuth");
-  if (statusAuth) statusAuth.textContent = "Not logged in";
-
-  const statusApp = $("authStatusApp");
-  if (statusApp) statusApp.textContent = "";
+  $("auth").style.display = "block";
+  $("app").style.display = "none";
+  $("authStatusAuth").textContent = "Not logged in";
+  $("authStatusApp").textContent = "";
 }
 
+/* -----------------------------
+   Status Bar
+----------------------------- */
 function updateStatusGraph() {
   const graph = $("status-graph");
   if (!graph) return;
@@ -67,10 +105,8 @@ function updateStatusGraph() {
   };
 
   const counts = {};
-  STATUSES.forEach(s => (counts[s] = 0));
-  projects.forEach(p => {
-    if (counts[p.status] !== undefined) counts[p.status]++;
-  });
+  STATUSES.forEach(s => counts[s] = 0);
+  projects.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
 
   const total = projects.length;
   if (total === 0) return;
@@ -78,6 +114,7 @@ function updateStatusGraph() {
   for (const status of STATUSES) {
     const c = counts[status];
     if (c === 0) continue;
+
     const seg = document.createElement("div");
     seg.style.width = `${(c / total) * 100}%`;
     seg.style.height = "100%";
@@ -88,7 +125,7 @@ function updateStatusGraph() {
 }
 
 /* -----------------------------
-   DB
+   DB: Projects
 ----------------------------- */
 async function fetchProjects() {
   const { data, error } = await supabase
@@ -116,20 +153,93 @@ async function updateProject(project) {
   if (error) throw error;
 }
 
-async function deleteProject(id) {
+async function deleteProject(projectId) {
   const { error } = await supabase
     .from("projects")
     .delete()
-    .eq("id", id)
+    .eq("id", projectId)
     .eq("user_id", currentUser.id);
 
   if (error) throw error;
 }
 
 /* -----------------------------
+   DB: Images
+   Requires table: project_images(id, user_id, project_id, path, caption, created_at)
+----------------------------- */
+async function listProjectImages(projectId) {
+  const { data, error } = await supabase
+    .from("project_images")
+    .select("id, path, caption, created_at")
+    .eq("user_id", currentUser.id)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  // Signed URLs so they load even with private bucket
+  const rows = data || [];
+  const images = [];
+  for (const row of rows) {
+    const { data: signed, error: sErr } = await supabase
+      .storage
+      .from(BUCKET)
+      .createSignedUrl(row.path, 60 * 60);
+
+    if (sErr) throw sErr;
+
+    images.push({
+      id: row.id,
+      path: row.path,
+      caption: row.caption || "",
+      url: signed.signedUrl,
+      created_at: row.created_at
+    });
+  }
+
+  return images;
+}
+
+async function uploadProjectImage(projectId, file, caption) {
+  const ext = safeExt(file.name);
+  const filename = `${Date.now()}_${crypto.randomUUID()}${ext}`;
+  const path = imagePath(projectId, filename);
+
+  // Upload to storage
+  const { error: upErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+
+  if (upErr) throw upErr;
+
+  // Insert metadata row
+  const { error: dbErr } = await supabase.from("project_images").insert({
+    user_id: currentUser.id,
+    project_id: projectId,
+    path,
+    caption: caption || ""
+  });
+
+  if (dbErr) throw dbErr;
+}
+
+async function deleteProjectImage(imageId, path) {
+  const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
+  if (rmErr) throw rmErr;
+
+  const { error: dbErr } = await supabase
+    .from("project_images")
+    .delete()
+    .eq("id", imageId)
+    .eq("user_id", currentUser.id);
+
+  if (dbErr) throw dbErr;
+}
+
+/* -----------------------------
    Render
 ----------------------------- */
-function render() {
+async function render() {
   const cols = {
     "Idea": $("col-idea"),
     "Planning": $("col-planning"),
@@ -138,7 +248,6 @@ function render() {
     "Completed": $("col-completed")
   };
 
-  // If columns aren't on the page yet, don't crash—just bail.
   for (const k of Object.keys(cols)) {
     if (!cols[k]) return;
     cols[k].innerHTML = "";
@@ -162,30 +271,100 @@ function render() {
         </select>
       </label>
 
-      <details>
+      <details class="notes-details">
         <summary>Notes</summary>
         <textarea class="notes-box" placeholder="Notes...">${escapeHtml(p.notes || "")}</textarea>
+      </details>
+
+      <details class="images-details">
+        <summary>Images</summary>
+
+        <div class="image-uploader">
+          <input class="image-file" type="file" accept="image/*" />
+          <input class="image-caption" type="text" placeholder="Caption (optional)" />
+          <button class="image-upload-btn" type="button">Upload</button>
+        </div>
+
+        <div class="image-grid">
+          <div class="image-empty">Loading...</div>
+        </div>
       </details>
 
       <button class="delete-btn" type="button">Delete</button>
     `;
 
     cols[status].appendChild(bubble);
+
+    // Load images for this bubble
+    const grid = bubble.querySelector(".image-grid");
+    await refreshImageGrid(p.id, grid);
   }
 
   updateStatusGraph();
 }
 
+async function refreshImageGrid(projectId, gridEl) {
+  if (!gridEl) return;
+
+  gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
+
+  try {
+    const images = await listProjectImages(projectId);
+
+    if (images.length === 0) {
+      gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
+      return;
+    }
+
+    gridEl.innerHTML = "";
+
+    for (const img of images) {
+      const card = document.createElement("div");
+      card.className = "image-card";
+      const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
+
+      card.innerHTML = `
+        <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
+        <div class="image-meta">
+          <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
+          <div class="image-date">${date}</div>
+        </div>
+        <button class="image-delete" type="button" title="Delete image">✕</button>
+      `;
+
+      // Click image -> modal
+      card.querySelector(".image-thumb").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.__openImageModal?.(img.url, img.caption || "");
+      });
+
+      // Delete
+      card.querySelector(".image-delete").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await deleteProjectImage(img.id, img.path);
+          await refreshImageGrid(projectId, gridEl);
+        } catch (err) {
+          console.error(err);
+          alert(err.message || "Delete failed");
+        }
+      });
+
+      gridEl.appendChild(card);
+    }
+  } catch (err) {
+    console.error(err);
+    gridEl.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
+  }
+}
+
 /* -----------------------------
-   Event Delegation
-   (prevents “buttons dead” issues)
+   Events (delegation)
 ----------------------------- */
 document.addEventListener("click", async (e) => {
   // Logout
-  const logoutBtn = e.target.closest("#logoutBtnTop");
-  if (logoutBtn) {
+  if (e.target.closest("#logoutBtnTop")) {
     e.preventDefault();
-    console.log("Logout clicked");
     await supabase.auth.signOut();
     return;
   }
@@ -200,16 +379,47 @@ document.addEventListener("click", async (e) => {
     try {
       await deleteProject(Number(id));
       projects = projects.filter(p => String(p.id) !== String(id));
-      render();
+      await render();
     } catch (err) {
       console.error(err);
       alert(err.message || "Delete failed.");
+    }
+    return;
+  }
+
+  // Upload image
+  const uploadBtn = e.target.closest(".image-upload-btn");
+  if (uploadBtn) {
+    const bubble = e.target.closest(".project-bubble");
+    const projectId = Number(bubble?.dataset?.projectId);
+    if (!projectId) return;
+
+    const fileInput = bubble.querySelector(".image-file");
+    const capInput = bubble.querySelector(".image-caption");
+    const grid = bubble.querySelector(".image-grid");
+
+    const file = fileInput?.files?.[0];
+    if (!file) return alert("Pick an image first.");
+
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = "Uploading...";
+
+    try {
+      await uploadProjectImage(projectId, file, capInput?.value?.trim() || "");
+      if (fileInput) fileInput.value = "";
+      if (capInput) capInput.value = "";
+      await refreshImageGrid(projectId, grid);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Upload failed.");
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = "Upload";
     }
   }
 });
 
 document.addEventListener("change", async (e) => {
-  // Status change
   const sel = e.target.closest(".status-select");
   if (!sel) return;
 
@@ -224,7 +434,7 @@ document.addEventListener("change", async (e) => {
 
   try {
     await updateProject(p);
-    render();
+    await render();
   } catch (err) {
     console.error(err);
     alert(err.message || "Update failed.");
@@ -232,7 +442,6 @@ document.addEventListener("change", async (e) => {
 });
 
 document.addEventListener("input", async (e) => {
-  // Notes typing (simple version: saves on every input)
   const notes = e.target.closest(".notes-box");
   if (!notes) return;
 
@@ -249,7 +458,6 @@ document.addEventListener("input", async (e) => {
     await updateProject(p);
   } catch (err) {
     console.error(err);
-    // don’t alert on every keystroke
   }
 }, { passive: true });
 
@@ -259,7 +467,6 @@ document.addEventListener("submit", async (e) => {
 
   e.preventDefault();
   e.stopPropagation();
-  console.log("Project form submitted");
 
   if (!currentUser) {
     alert("Please log in first.");
@@ -284,61 +491,44 @@ document.addEventListener("submit", async (e) => {
   try {
     await insertProject(project);
     projects = await fetchProjects();
-    render();
+    await render();
     form.reset();
   } catch (err) {
     console.error(err);
     alert(err.message || "Failed to add project.");
   }
-}, true); // capture=true makes this extra reliable
+}, true);
 
 /* -----------------------------
-   Init (runs even if DOM is already ready)
+   Init
 ----------------------------- */
 async function init() {
-  console.log("init() running ✅");
+  setupImageModal();
 
-  // Auth buttons (if present)
   const loginBtn = $("loginBtn");
   const registerBtn = $("registerBtn");
 
-  if (loginBtn) {
-    loginBtn.addEventListener("click", async () => {
-      const email = ($("email")?.value || "").trim();
-      const password = $("password")?.value || "";
-      console.log("Login clicked");
+  loginBtn?.addEventListener("click", async () => {
+    const email = ($("email")?.value || "").trim();
+    const password = $("password")?.value || "";
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert(error.message);
+  });
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message);
-    });
-  }
+  registerBtn?.addEventListener("click", async () => {
+    const email = ($("email")?.value || "").trim();
+    const password = $("password")?.value || "";
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) alert(error.message);
+    else alert("Registered! You can now log in.");
+  });
 
-  if (registerBtn) {
-    registerBtn.addEventListener("click", async () => {
-      const email = ($("email")?.value || "").trim();
-      const password = $("password")?.value || "";
-      console.log("Register clicked");
-
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else alert("Registered! You can now log in.");
-    });
-  }
-
-  // Auth state
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
       setLoggedInUI(session.user.email || "user");
-
-      try {
-        projects = await fetchProjects();
-      } catch (err) {
-        console.error(err);
-        projects = [];
-      }
-
-      render();
+      projects = await fetchProjects();
+      await render();
     } else {
       currentUser = null;
       projects = [];
@@ -346,24 +536,23 @@ async function init() {
     }
   });
 
-  // Initial session restore
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
     setLoggedInUI(currentUser.email || "user");
     projects = await fetchProjects();
-    render();
+    await render();
   } else {
     setLoggedOutUI();
   }
 }
 
-// Run init whether DOMContentLoaded already fired or not
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init, { once: true });
 } else {
   init();
 }
+
 
 
 
