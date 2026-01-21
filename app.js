@@ -1,32 +1,40 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
+/* =============================
+   SUPABASE CONFIG
+============================= */
 const SUPABASE_URL = "https://pavagjywyubnbmzejojp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XQouTjRTbiSuLsog-ZghGw_x4f9APJy";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-console.log("app.js loaded ✅");
-
 const BUCKET = "project-images";
 
+console.log("app.js loaded ✅");
+
+/* =============================
+   STATE
+============================= */
 let projects = [];
 let currentUser = null;
 
 const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
 
-/* -----------------------------
-   Helpers
------------------------------ */
-function $(id) { return document.getElementById(id); }
+/* =============================
+   HELPERS
+============================= */
+function $(id) {
+  return document.getElementById(id);
+}
 
 function escapeHtml(str) {
-  return String(str)
+  return String(str ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 }
 
 function safeExt(filename) {
-  const m = filename.toLowerCase().match(/\.(png|jpg|jpeg|webp|gif)$/);
+  const m = String(filename || "").toLowerCase().match(/\.(png|jpg|jpeg|webp|gif)$/);
   return m ? m[0] : ".jpg";
 }
 
@@ -34,15 +42,14 @@ function imagePath(projectId, filename) {
   return `${currentUser.id}/${projectId}/${filename}`;
 }
 
-/* -----------------------------
-   Modal
------------------------------ */
+/* =============================
+   MODAL
+============================= */
 function setupImageModal() {
   const modal = $("imgModal");
   const img = $("imgModalImage");
   const cap = $("imgModalCaption");
   const close = $("imgModalClose");
-
   if (!modal || !img || !cap || !close) return;
 
   function hide() {
@@ -54,7 +61,6 @@ function setupImageModal() {
 
   close.addEventListener("click", hide);
   modal.addEventListener("click", (e) => {
-    // click outside inner closes
     if (e.target === modal) hide();
   });
 
@@ -70,25 +76,35 @@ function setupImageModal() {
   };
 }
 
-/* -----------------------------
+/* =============================
    UI
------------------------------ */
+============================= */
 function setLoggedInUI(email) {
-  $("auth").style.display = "none";
-  $("app").style.display = "block";
-  $("authStatusApp").textContent = `Logged in as ${email}`;
+  const auth = $("auth");
+  const app = $("app");
+  if (auth) auth.style.display = "none";
+  if (app) app.style.display = "block";
+
+  const statusApp = $("authStatusApp");
+  if (statusApp) statusApp.textContent = `Logged in as ${email}`;
 }
 
 function setLoggedOutUI() {
-  $("auth").style.display = "block";
-  $("app").style.display = "none";
-  $("authStatusAuth").textContent = "Not logged in";
-  $("authStatusApp").textContent = "";
+  const auth = $("auth");
+  const app = $("app");
+  if (auth) auth.style.display = "block";
+  if (app) app.style.display = "none";
+
+  const statusAuth = $("authStatusAuth");
+  if (statusAuth) statusAuth.textContent = "Not logged in";
+
+  const statusApp = $("authStatusApp");
+  if (statusApp) statusApp.textContent = "";
 }
 
-/* -----------------------------
-   Status Bar
------------------------------ */
+/* =============================
+   STATUS BAR
+============================= */
 function updateStatusGraph() {
   const graph = $("status-graph");
   if (!graph) return;
@@ -105,8 +121,10 @@ function updateStatusGraph() {
   };
 
   const counts = {};
-  STATUSES.forEach(s => counts[s] = 0);
-  projects.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
+  STATUSES.forEach(s => (counts[s] = 0));
+  projects.forEach(p => {
+    if (counts[p.status] !== undefined) counts[p.status]++;
+  });
 
   const total = projects.length;
   if (total === 0) return;
@@ -114,7 +132,6 @@ function updateStatusGraph() {
   for (const status of STATUSES) {
     const c = counts[status];
     if (c === 0) continue;
-
     const seg = document.createElement("div");
     seg.style.width = `${(c / total) * 100}%`;
     seg.style.height = "100%";
@@ -124,9 +141,9 @@ function updateStatusGraph() {
   }
 }
 
-/* -----------------------------
-   DB: Projects
------------------------------ */
+/* =============================
+   DB: PROJECTS
+============================= */
 async function fetchProjects() {
   const { data, error } = await supabase
     .from("projects")
@@ -163,10 +180,10 @@ async function deleteProject(projectId) {
   if (error) throw error;
 }
 
-/* -----------------------------
-   DB: Images
-   Requires table: project_images(id, user_id, project_id, path, caption, created_at)
------------------------------ */
+/* =============================
+   DB: IMAGES
+   Table: project_images(id, user_id, project_id, path, caption, created_at)
+============================= */
 async function listProjectImages(projectId) {
   const { data, error } = await supabase
     .from("project_images")
@@ -177,9 +194,9 @@ async function listProjectImages(projectId) {
 
   if (error) throw error;
 
-  // Signed URLs so they load even with private bucket
   const rows = data || [];
   const images = [];
+
   for (const row of rows) {
     const { data: signed, error: sErr } = await supabase
       .storage
@@ -205,14 +222,15 @@ async function uploadProjectImage(projectId, file, caption) {
   const filename = `${Date.now()}_${crypto.randomUUID()}${ext}`;
   const path = imagePath(projectId, filename);
 
-  // Upload to storage
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+    .upload(path, file, {
+      upsert: false,
+      contentType: file.type || "image/jpeg"
+    });
 
   if (upErr) throw upErr;
 
-  // Insert metadata row
   const { error: dbErr } = await supabase.from("project_images").insert({
     user_id: currentUser.id,
     project_id: projectId,
@@ -236,9 +254,62 @@ async function deleteProjectImage(imageId, path) {
   if (dbErr) throw dbErr;
 }
 
-/* -----------------------------
-   Render
------------------------------ */
+/* =============================
+   RENDER
+============================= */
+async function refreshImageGrid(projectId, gridEl) {
+  if (!gridEl) return;
+  gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
+
+  try {
+    const images = await listProjectImages(projectId);
+
+    if (images.length === 0) {
+      gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
+      return;
+    }
+
+    gridEl.innerHTML = "";
+
+    for (const img of images) {
+      const card = document.createElement("div");
+      card.className = "image-card";
+
+      const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
+
+      card.innerHTML = `
+        <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
+        <div class="image-meta">
+          <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
+          <div class="image-date">${date}</div>
+        </div>
+        <button class="image-delete" type="button" title="Delete image">✕</button>
+      `;
+
+      card.querySelector(".image-thumb").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.__openImageModal?.(img.url, img.caption || "");
+      });
+
+      card.querySelector(".image-delete").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await deleteProjectImage(img.id, img.path);
+          await refreshImageGrid(projectId, gridEl);
+        } catch (err) {
+          console.error(err);
+          alert(err.message || "Delete failed");
+        }
+      });
+
+      gridEl.appendChild(card);
+    }
+  } catch (err) {
+    console.error(err);
+    gridEl.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
+  }
+}
+
 async function render() {
   const cols = {
     "Idea": $("col-idea"),
@@ -248,6 +319,7 @@ async function render() {
     "Completed": $("col-completed")
   };
 
+  // If we’re on register.html, these columns don’t exist — just skip render.
   for (const k of Object.keys(cols)) {
     if (!cols[k]) return;
     cols[k].innerHTML = "";
@@ -295,7 +367,7 @@ async function render() {
 
     cols[status].appendChild(bubble);
 
-    // Load images for this bubble
+    // Load images into this bubble
     const grid = bubble.querySelector(".image-grid");
     await refreshImageGrid(p.id, grid);
   }
@@ -303,64 +375,9 @@ async function render() {
   updateStatusGraph();
 }
 
-async function refreshImageGrid(projectId, gridEl) {
-  if (!gridEl) return;
-
-  gridEl.innerHTML = `<div class="image-empty">Loading...</div>`;
-
-  try {
-    const images = await listProjectImages(projectId);
-
-    if (images.length === 0) {
-      gridEl.innerHTML = `<div class="image-empty">No images yet.</div>`;
-      return;
-    }
-
-    gridEl.innerHTML = "";
-
-    for (const img of images) {
-      const card = document.createElement("div");
-      card.className = "image-card";
-      const date = img.created_at ? new Date(img.created_at).toLocaleDateString() : "";
-
-      card.innerHTML = `
-        <img class="image-thumb" src="${img.url}" alt="Project image" loading="lazy" />
-        <div class="image-meta">
-          <div class="image-caption-text">${escapeHtml(img.caption || "")}</div>
-          <div class="image-date">${date}</div>
-        </div>
-        <button class="image-delete" type="button" title="Delete image">✕</button>
-      `;
-
-      // Click image -> modal
-      card.querySelector(".image-thumb").addEventListener("click", (e) => {
-        e.stopPropagation();
-        window.__openImageModal?.(img.url, img.caption || "");
-      });
-
-      // Delete
-      card.querySelector(".image-delete").addEventListener("click", async (e) => {
-        e.stopPropagation();
-        try {
-          await deleteProjectImage(img.id, img.path);
-          await refreshImageGrid(projectId, gridEl);
-        } catch (err) {
-          console.error(err);
-          alert(err.message || "Delete failed");
-        }
-      });
-
-      gridEl.appendChild(card);
-    }
-  } catch (err) {
-    console.error(err);
-    gridEl.innerHTML = `<div class="image-empty">Couldn’t load images.</div>`;
-  }
-}
-
-/* -----------------------------
-   Events (delegation)
------------------------------ */
+/* =============================
+   EVENTS (delegation)
+============================= */
 document.addEventListener("click", async (e) => {
   // Logout
   if (e.target.closest("#logoutBtnTop")) {
@@ -499,59 +516,97 @@ document.addEventListener("submit", async (e) => {
   }
 }, true);
 
-/* -----------------------------
-   Init
------------------------------ */
+/* =============================
+   INIT
+============================= */
 async function init() {
+  console.log("init() running ✅");
+
   setupImageModal();
 
+  // ----- LOGIN PAGE (index.html) -----
   const loginBtn = $("loginBtn");
-  const registerBtn = $("registerBtn");
+  if (loginBtn) {
+    loginBtn.addEventListener("click", async () => {
+      const email = ($("email")?.value || "").trim();
+      const password = $("password")?.value || "";
 
-  loginBtn?.addEventListener("click", async () => {
-    const email = ($("email")?.value || "").trim();
-    const password = $("password")?.value || "";
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) alert(error.message);
-  });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert(error.message);
+    });
+  }
 
-  registerBtn?.addEventListener("click", async () => {
-    const email = ($("email")?.value || "").trim();
-    const password = $("password")?.value || "";
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) alert(error.message);
-    else alert("Registered! You can now log in.");
-  });
+  // ----- REGISTER PAGE (register.html) -----
+  const registerPageBtn = $("registerPageBtn");
+  if (registerPageBtn) {
+    registerPageBtn.addEventListener("click", async () => {
+      const email = ($("regEmail")?.value || "").trim();
+      const password = $("regPassword")?.value || "";
+      const msg = $("registerMsg");
 
+      if (!email || !password) {
+        if (msg) msg.textContent = "Please enter email and password.";
+        return;
+      }
+
+      const { error } = await supabase.auth.signUp({ email, password });
+
+      if (error) {
+        if (msg) msg.textContent = error.message;
+        return;
+      }
+
+      if (msg) {
+        msg.innerHTML = `
+          ✅ Account created!<br/>
+          Please check <strong>${escapeHtml(email)}</strong> to confirm your email.<br/>
+          After confirming, go back to <a href="index.html">Login</a>.
+        `;
+      }
+    });
+  }
+
+  // Auth state listener
   supabase.auth.onAuthStateChange(async (_event, session) => {
     if (session?.user) {
       currentUser = session.user;
-      setLoggedInUI(session.user.email || "user");
-      projects = await fetchProjects();
-      await render();
+
+      // If we’re on register.html, we don’t show the app — just message and let them go login.
+      if ($("project-form")) {
+        setLoggedInUI(session.user.email || "user");
+        projects = await fetchProjects();
+        await render();
+      }
     } else {
       currentUser = null;
       projects = [];
-      setLoggedOutUI();
+      if ($("project-form")) setLoggedOutUI();
     }
   });
 
+  // Restore session
   const { data } = await supabase.auth.getSession();
   if (data?.session?.user) {
     currentUser = data.session.user;
-    setLoggedInUI(currentUser.email || "user");
-    projects = await fetchProjects();
-    await render();
+
+    // Only show dashboard if we're on index.html (project-form exists)
+    if ($("project-form")) {
+      setLoggedInUI(currentUser.email || "user");
+      projects = await fetchProjects();
+      await render();
+    }
   } else {
-    setLoggedOutUI();
+    if ($("project-form")) setLoggedOutUI();
   }
 }
 
+// Run init no matter when script loads
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init, { once: true });
 } else {
   init();
 }
+
 
 
 

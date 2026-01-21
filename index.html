@@ -2,23 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Creative Ops</title>
+  <title>Creative Ops — Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-  <!-- AUTH -->
+  <!-- LOGIN -->
   <section id="auth">
-    <h2>Login / Register</h2>
+    <h2>Login</h2>
 
     <input id="email" type="email" placeholder="Email" autocomplete="email" />
     <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
 
     <button id="loginBtn" type="button">Login</button>
-    <button id="registerBtn" type="button">Register</button>
 
     <p id="authStatusAuth">Not logged in</p>
+
+    <p style="margin-top:12px; opacity:.85;">
+      New here? <a href="register.html">Create an account</a>
+    </p>
   </section>
 
   <!-- APP -->
@@ -84,7 +87,7 @@
     </div>
   </section>
 
-  <!-- IMAGE MODAL (click-to-enlarge) -->
+  <!-- IMAGE MODAL -->
   <div id="imgModal" class="img-modal" aria-hidden="true">
     <div class="img-modal-inner" role="dialog" aria-modal="true">
       <button id="imgModalClose" class="img-modal-close" type="button">✕</button>
@@ -96,6 +99,7 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
 
 
