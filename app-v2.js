@@ -1,173 +1,256 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
+/* =============================
+   SUPABASE
+============================= */
 const SUPABASE_URL = "https://pavagjywyubnbmzejojp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XQouTjRTbiSuLsog-ZghGw_x4f9APJy";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
 });
 
+/* =============================
+   STATE
+============================= */
 let currentUser = null;
+let projects = [];
 
-function $(id) { return document.getElementById(id); }
+const STATUSES = ["Idea", "Planning", "In Progress", "Paused", "Completed"];
+
+/* =============================
+   HELPERS
+============================= */
+const $ = (id) => document.getElementById(id);
 
 function setAuthBoot(msg) {
-  const el = $("bootStatusAuth");
-  if (el) el.textContent = msg;
+  if ($("bootStatusAuth")) $("bootStatusAuth").textContent = msg;
   console.log("[AUTH]", msg);
 }
 
 function setAppBoot(msg) {
-  const el = $("bootStatus");
-  if (el) el.textContent = msg;
+  if ($("bootStatus")) $("bootStatus").textContent = msg;
   console.log("[APP]", msg);
 }
 
 function showError(msg) {
   const wrap = $("errorBanner");
   const text = $("errorBannerMsg");
-  if (wrap && text) {
-    text.textContent = msg || "Unknown error";
-    wrap.style.display = "block";
-  }
+  if (!wrap || !text) return;
+  text.textContent = msg;
+  wrap.style.display = "block";
   console.error(msg);
 }
 
 function clearError() {
-  const wrap = $("errorBanner");
-  if (wrap) wrap.style.display = "none";
+  if ($("errorBanner")) $("errorBanner").style.display = "none";
 }
 
+/* =============================
+   UI STATE
+============================= */
 function setLoggedInUI(email) {
-  $("auth")?.style && ($("auth").style.display = "none");
-  $("app")?.style && ($("app").style.display = "block");
-  if ($("authStatusApp")) $("authStatusApp").textContent = `Logged in as ${email}`;
+  $("auth").style.display = "none";
+  $("app").style.display = "block";
+  $("authStatusApp").textContent = `Logged in as ${email}`;
 }
 
 function setLoggedOutUI() {
-  $("auth")?.style && ($("auth").style.display = "block");
-  $("app")?.style && ($("app").style.display = "none");
-  if ($("authStatusAuth")) $("authStatusAuth").textContent = "Not logged in";
+  $("auth").style.display = "block";
+  $("app").style.display = "none";
+  $("authStatusAuth").textContent = "Not logged in";
 }
 
-async function doLogin() {
+/* =============================
+   SUPABASE QUERIES
+============================= */
+async function fetchProjects() {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function insertProject(project) {
+  const { error } = await supabase.from("projects").insert(project);
+  if (error) throw error;
+}
+
+/* =============================
+   RENDER
+============================= */
+function clearColumns() {
+  STATUSES.forEach((s) => {
+    const colId = {
+      "Idea": "col-idea",
+      "Planning": "col-planning",
+      "In Progress": "col-inprogress",
+      "Paused": "col-paused",
+      "Completed": "col-completed"
+    }[s];
+    if ($(colId)) $(colId).innerHTML = "";
+  });
+}
+
+function render() {
+  clearColumns();
+
+  projects.forEach((p) => {
+    const colId = {
+      "Idea": "col-idea",
+      "Planning": "col-planning",
+      "In Progress": "col-inprogress",
+      "Paused": "col-paused",
+      "Completed": "col-completed"
+    }[p.status] || "col-idea";
+
+    const col = $(colId);
+    if (!col) return;
+
+    const bubble = document.createElement("div");
+    bubble.className = "project-bubble";
+    bubble.innerHTML = `
+      <h4>${p.title}</h4>
+      ${p.type ? `<p><strong>Type:</strong> ${p.type}</p>` : ""}
+      ${p.medium ? `<p><strong>Medium:</strong> ${p.medium}</p>` : ""}
+      <p><strong>Status:</strong> ${p.status}</p>
+    `;
+    col.appendChild(bubble);
+  });
+}
+
+/* =============================
+   ADD PROJECT (OPTION A FIX)
+============================= */
+async function handleAddProject() {
   clearError();
-  const email = ($("email")?.value || "").trim();
-  const password = $("password")?.value || "";
 
-  if (!email || !password) {
-    setAuthBoot("Enter email + password.");
-    return alert("Please enter email and password.");
-  }
-
-  setAuthBoot("Logging in…");
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    setAuthBoot("Login failed.");
-    showError(error.message);
-    alert(error.message);
+  if (!currentUser) {
+    alert("You must be logged in.");
     return;
   }
 
-  setAuthBoot("✅ Logged in!");
-  const user = data?.user;
-  if (user) {
-    currentUser = user;
-    setLoggedInUI(user.email || "user");
-    setAppBoot("✅ Ready.");
+  const title = $("title").value.trim();
+  if (!title) {
+    alert("Project title is required.");
+    return;
+  }
+
+  const project = {
+    user_id: currentUser.id,
+    title,
+    type: $("type").value.trim(),
+    medium: $("medium").value.trim(),
+    tags: $("tags").value.trim(),
+    status: $("status").value,
+    notes: ""
+  };
+
+  try {
+    setAppBoot("Saving project…");
+    await insertProject(project);
+
+    projects = await fetchProjects();
+    render();
+
+    $("project-form").reset();
+    setAppBoot(`✅ Projects loaded: ${projects.length}`);
+  } catch (err) {
+    showError(err.message);
+    setAppBoot("❌ Save failed");
   }
 }
 
-function wireLogin() {
-  const loginBtn = $("loginBtn");
-  if (!loginBtn) {
-    setAuthBoot("❌ loginBtn not found (ID mismatch).");
-    return;
-  }
+/* =============================
+   EVENT WIRING
+============================= */
+function wireProjectForm() {
+  const form = $("project-form");
+  if (!form || form.dataset.wired) return;
+  form.dataset.wired = "1";
 
-  // Make sure we only wire once
-  if (loginBtn.dataset.wired) return;
-  loginBtn.dataset.wired = "1";
-
-  loginBtn.addEventListener("click", async () => {
-    try {
-      await doLogin();
-    } catch (err) {
-      setAuthBoot("Login crashed.");
-      showError(err.message || String(err));
-      alert(err.message || String(err));
-    }
-  });
-
-  // Enter key support
-  const email = $("email");
-  const pass = $("password");
-  [email, pass].forEach((el) => {
-    if (!el) return;
-    el.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        try { await doLogin(); }
-        catch (err) {
-          setAuthBoot("Login crashed.");
-          showError(err.message || String(err));
-          alert(err.message || String(err));
-        }
-      }
-    });
-  });
-
-  setAuthBoot("✅ Login wired.");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();   // 🔥 THIS IS THE KEY
+    e.stopPropagation();
+    await handleAddProject();
+  }, true);
 }
 
 function wireLogout() {
-  const logoutBtn = $("logoutBtnTop");
-  if (!logoutBtn) return;
-  if (logoutBtn.dataset.wired) return;
-  logoutBtn.dataset.wired = "1";
+  const btn = $("logoutBtnTop");
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = "1";
 
-  logoutBtn.addEventListener("click", async () => {
-    try {
-      setAppBoot("Logging out…");
-      await supabase.auth.signOut();
-      setAppBoot("Logged out.");
-    } catch (err) {
-      showError(err.message || String(err));
-      alert(err.message || String(err));
+  btn.addEventListener("click", async () => {
+    await supabase.auth.signOut();
+  });
+}
+
+function wireLogin() {
+  const btn = $("loginBtn");
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = "1";
+
+  btn.addEventListener("click", async () => {
+    clearError();
+    const email = $("email").value.trim();
+    const password = $("password").value;
+
+    if (!email || !password) {
+      alert("Enter email and password");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) showError(error.message);
+  });
+}
+
+/* =============================
+   INIT
+============================= */
+async function init() {
+  setAuthBoot("JS loaded");
+  wireLogin();
+  wireLogout();
+  wireProjectForm();
+
+  const { data } = await supabase.auth.getSession();
+  if (data?.session?.user) {
+    currentUser = data.session.user;
+    setLoggedInUI(currentUser.email);
+    projects = await fetchProjects();
+    render();
+    setAppBoot(`Session restored (${projects.length})`);
+  } else {
+    setLoggedOutUI();
+  }
+
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    if (session?.user) {
+      currentUser = session.user;
+      setLoggedInUI(currentUser.email);
+      projects = await fetchProjects();
+      render();
+      setAppBoot(`Session restored (${projects.length})`);
+    } else {
+      currentUser = null;
+      projects = [];
+      setLoggedOutUI();
     }
   });
 }
 
-async function boot() {
-  setAuthBoot("✅ JS loaded. Checking session…");
-  wireLogin();
-  wireLogout();
+document.addEventListener("DOMContentLoaded", init);
 
-  const { data, error } = await supabase.auth.getSession();
-  if (error) {
-    setAuthBoot("Session check failed.");
-    showError(error.message);
-    return;
-  }
-
-  const user = data?.session?.user;
-  if (user) {
-    currentUser = user;
-    setLoggedInUI(user.email || "user");
-    setAppBoot("✅ Session restored.");
-  } else {
-    currentUser = null;
-    setLoggedOutUI();
-    setAuthBoot("Not logged in.");
-  }
-}
-
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => boot().catch(e => showError(e.message || String(e))), { once: true });
-} else {
-  boot().catch(e => showError(e.message || String(e)));
-}
 
 
 
