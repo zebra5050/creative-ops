@@ -66,8 +66,15 @@ function parseTags(raw) {
   return [...new Set(parts)];
 }
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 /* =============================
-   UI STATE
+   UI
 ============================= */
 function setLoggedInUI(email) {
   $("auth").style.display = "none";
@@ -82,7 +89,7 @@ function setLoggedOutUI() {
 }
 
 /* =============================
-   SUPABASE QUERIES
+   DB
 ============================= */
 async function fetchProjects() {
   const { data, error } = await supabase
@@ -95,6 +102,7 @@ async function fetchProjects() {
   return data || [];
 }
 
+// IMPORTANT: Insert WITHOUT "id" (bigint should auto-generate)
 async function insertProject(project) {
   const { error } = await supabase.from("projects").insert(project);
   if (error) throw error;
@@ -115,13 +123,6 @@ function clearColumns() {
     const id = map[s];
     if ($(id)) $(id).innerHTML = "";
   });
-}
-
-function escapeHtml(str) {
-  return String(str ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function render() {
@@ -156,7 +157,7 @@ function render() {
 }
 
 /* =============================
-   ADD PROJECT (FIXED ID)
+   ADD PROJECT (Option A)
 ============================= */
 async function handleAddProject() {
   clearError();
@@ -172,9 +173,8 @@ async function handleAddProject() {
     return;
   }
 
-  // ✅ If your projects.id column is UUID NOT NULL, we must provide one:
+  // ✅ NO id here. DB auto-fills bigint id (once you add identity)
   const project = {
-    id: crypto.randomUUID(),        // 👈 FIX
     user_id: currentUser.id,
     title,
     type: $("type").value.trim(),
@@ -200,7 +200,7 @@ async function handleAddProject() {
 }
 
 /* =============================
-   EVENT WIRING
+   WIRING
 ============================= */
 function wireProjectForm() {
   const form = $("project-form");
@@ -208,7 +208,7 @@ function wireProjectForm() {
   form.dataset.wired = "1";
 
   form.addEventListener("submit", async (e) => {
-    e.preventDefault();   // ✅ prevents refresh
+    e.preventDefault();
     e.stopPropagation();
     await handleAddProject();
   }, true);
@@ -280,6 +280,7 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
 
 
 
