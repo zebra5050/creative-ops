@@ -50,6 +50,25 @@ function clearError() {
   if ($("errorBanner")) $("errorBanner").style.display = "none";
 }
 
+// ✅ Parse tags input into an array (matches Postgres text[] column)
+function parseTags(raw) {
+  const txt = String(raw || "").trim();
+  if (!txt) return [];
+
+  // allow "#tag", "tag", commas, spaces
+  const parts = txt
+    .replaceAll(",", " ")
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(Boolean)
+    .map(t => t.startsWith("#") ? t.slice(1) : t)
+    .map(t => t.toLowerCase())
+    .filter(Boolean);
+
+  // dedupe
+  return [...new Set(parts)];
+}
+
 /* =============================
    UI STATE
 ============================= */
@@ -88,47 +107,59 @@ async function insertProject(project) {
    RENDER
 ============================= */
 function clearColumns() {
+  const map = {
+    "Idea": "col-idea",
+    "Planning": "col-planning",
+    "In Progress": "col-inprogress",
+    "Paused": "col-paused",
+    "Completed": "col-completed"
+  };
   STATUSES.forEach((s) => {
-    const colId = {
-      "Idea": "col-idea",
-      "Planning": "col-planning",
-      "In Progress": "col-inprogress",
-      "Paused": "col-paused",
-      "Completed": "col-completed"
-    }[s];
-    if ($(colId)) $(colId).innerHTML = "";
+    const id = map[s];
+    if ($(id)) $(id).innerHTML = "";
   });
+}
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function render() {
   clearColumns();
 
-  projects.forEach((p) => {
-    const colId = {
-      "Idea": "col-idea",
-      "Planning": "col-planning",
-      "In Progress": "col-inprogress",
-      "Paused": "col-paused",
-      "Completed": "col-completed"
-    }[p.status] || "col-idea";
+  const map = {
+    "Idea": "col-idea",
+    "Planning": "col-planning",
+    "In Progress": "col-inprogress",
+    "Paused": "col-paused",
+    "Completed": "col-completed"
+  };
 
+  projects.forEach((p) => {
+    const colId = map[p.status] || "col-idea";
     const col = $(colId);
     if (!col) return;
+
+    const tagList = Array.isArray(p.tags) ? p.tags : [];
 
     const bubble = document.createElement("div");
     bubble.className = "project-bubble";
     bubble.innerHTML = `
-      <h4>${p.title}</h4>
-      ${p.type ? `<p><strong>Type:</strong> ${p.type}</p>` : ""}
-      ${p.medium ? `<p><strong>Medium:</strong> ${p.medium}</p>` : ""}
-      <p><strong>Status:</strong> ${p.status}</p>
+      <h4>${escapeHtml(p.title || "Untitled")}</h4>
+      ${p.type ? `<p><strong>Type:</strong> ${escapeHtml(p.type)}</p>` : ""}
+      ${p.medium ? `<p><strong>Medium:</strong> ${escapeHtml(p.medium)}</p>` : ""}
+      <p><strong>Status:</strong> ${escapeHtml(p.status || "")}</p>
+      ${tagList.length ? `<p><strong>Tags:</strong> ${tagList.map(t => `#${escapeHtml(t)}`).join(" ")}</p>` : ""}
     `;
     col.appendChild(bubble);
   });
 }
 
 /* =============================
-   ADD PROJECT (OPTION A FIX)
+   ADD PROJECT (Option A)
 ============================= */
 async function handleAddProject() {
   clearError();
@@ -149,7 +180,8 @@ async function handleAddProject() {
     title,
     type: $("type").value.trim(),
     medium: $("medium").value.trim(),
-    tags: $("tags").value.trim(),
+    // ✅ FIX: send array instead of string
+    tags: parseTags($("tags").value),
     status: $("status").value,
     notes: ""
   };
@@ -178,7 +210,7 @@ function wireProjectForm() {
   form.dataset.wired = "1";
 
   form.addEventListener("submit", async (e) => {
-    e.preventDefault();   // 🔥 THIS IS THE KEY
+    e.preventDefault();   // ✅ prevents refresh
     e.stopPropagation();
     await handleAddProject();
   }, true);
@@ -250,9 +282,6 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
-
-
 
 
 
