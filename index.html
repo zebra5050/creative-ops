@@ -44,9 +44,17 @@
       <div id="errorBannerMsg" style="margin-top:6px;"></div>
     </div>
 
-    <!-- (Your existing dashboard HTML can live below.
-         For now we only need auth to work, so keep the rest as-is.) -->
+    <!-- STATUS BAR -->
+    <div id="status-graph-container">
+      <div id="status-graph" aria-label="Project status summary bar"></div>
+    </div>
 
+    <!-- SEARCH -->
+    <div class="search-row">
+      <input id="searchInput" type="text" placeholder="Search title, medium, type, or tags (ex: crochet, #webdev)..." />
+    </div>
+
+    <!-- DASHBOARD -->
     <div class="dashboard">
       <aside class="left-panel">
         <form id="project-form" novalidate>
@@ -55,7 +63,7 @@
           <input id="title" type="text" placeholder="Project title" />
           <input id="type" type="text" placeholder="Type (optional)" />
           <input id="medium" type="text" placeholder="Medium / Tools" />
-          <input id="tags" type="text" placeholder="Tags (ex: #art #webdev)" />
+          <input id="tags" type="text" placeholder="Tags (ex: #art #crochet #webdev)" />
 
           <select id="status">
             <option>Idea</option>
@@ -81,9 +89,19 @@
     </div>
   </section>
 
+  <!-- IMAGE MODAL -->
+  <div id="imgModal" class="img-modal" aria-hidden="true">
+    <div class="img-modal-inner" role="dialog" aria-modal="true">
+      <button id="imgModalClose" class="img-modal-close" type="button">✕</button>
+      <img id="imgModalImage" class="img-modal-image" alt="Full size preview" />
+      <div id="imgModalCaption" class="img-modal-caption"></div>
+    </div>
+  </div>
+
   <script type="module" src="app-v2.js"></script>
 </body>
 </html>
+
 
 
 
