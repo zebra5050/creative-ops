@@ -50,12 +50,10 @@ function clearError() {
   if ($("errorBanner")) $("errorBanner").style.display = "none";
 }
 
-// ✅ Parse tags input into an array (matches Postgres text[] column)
 function parseTags(raw) {
   const txt = String(raw || "").trim();
   if (!txt) return [];
 
-  // allow "#tag", "tag", commas, spaces
   const parts = txt
     .replaceAll(",", " ")
     .split(/\s+/)
@@ -65,7 +63,6 @@ function parseTags(raw) {
     .map(t => t.toLowerCase())
     .filter(Boolean);
 
-  // dedupe
   return [...new Set(parts)];
 }
 
@@ -159,7 +156,7 @@ function render() {
 }
 
 /* =============================
-   ADD PROJECT (Option A)
+   ADD PROJECT (FIXED ID)
 ============================= */
 async function handleAddProject() {
   clearError();
@@ -175,12 +172,13 @@ async function handleAddProject() {
     return;
   }
 
+  // ✅ If your projects.id column is UUID NOT NULL, we must provide one:
   const project = {
+    id: crypto.randomUUID(),        // 👈 FIX
     user_id: currentUser.id,
     title,
     type: $("type").value.trim(),
     medium: $("medium").value.trim(),
-    // ✅ FIX: send array instead of string
     tags: parseTags($("tags").value),
     status: $("status").value,
     notes: ""
@@ -282,7 +280,6 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
 
 
 
